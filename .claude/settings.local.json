@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"C:\\\\Proyectos\\\\Nuevo Jira\\\\drag-flow-forge\\\\.claude\\\\worktrees\\\\beautiful-nash\\\\src\\\\components\"/*.tsx)",
+      "Bash(xargs wc -l)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3 /tmp/write_createcard.py)",
+      "Bash(python -c \":*)",
+      "Bash(node --version)",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"require\\(''fs''\\).writeFileSync\\(''C:/Windows/Temp/w.js'', ''console.log\\(42\\)''\\)\")",
+      "Bash(node C:/Windows/Temp/w.js)"
+    ]
+  }
+}

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { User, Board, Card, Column, CustomField } from '@/types';
 import { ROLE_LABELS } from '@/types';
-import { loadData, saveData, generateId, getInitials } from '@/lib/storage';
-import { defaultUsers, defaultBoards, defaultCards } from '@/lib/storage';
+import { generateId, getInitials } from '@/lib/storage';
+import { authApi, usersApi, boardsApi, cardsApi } from '@/lib/api';
 import { Icons } from '@/components/Icons';
 
 import Login from '@/components/Login';
@@ -18,17 +18,11 @@ import CustomFieldList, { FieldForm } from '@/components/CustomFieldList';
 import Confirm from '@/components/Confirm';
 
 const Index = () => {
-  const [users, setUsers] = useState<User[]>(() => loadData('users', defaultUsers));
-  const [boards, setBoards] = useState<Board[]>(() => loadData('boards', defaultBoards));
-  const [cards, setCards] = useState<Card[]>(() => loadData('cards', defaultCards));
-  const [nextGlobalNum, setNextGlobalNum] = useState<number>(() => {
-    const s = loadData<number | null>('nextGlobalNum', () => null);
-    if (s !== null) return s;
-    const nums = cards.map(c => parseInt(c.code.split('-')[1])).filter(n => !isNaN(n));
-    return Math.max(101, ...nums) === -Infinity ? 101 : Math.max(101, ...nums) + 1;
-  });
-
   const [me, setMe] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState('dashboard');
 
   // Modal states
@@ -49,143 +43,234 @@ const Index = () => {
   const [editField, setEditField] = useState<(CustomField & { boardId?: string }) | null>(null);
   const [confirmDeleteField, setConfirmDeleteField] = useState<(CustomField & { boardId: string; boardName: string }) | null>(null);
 
-  // Persist
-  useEffect(() => { saveData('users', users); }, [users]);
-  useEffect(() => { saveData('boards', boards); }, [boards]);
-  useEffect(() => { saveData('cards', cards); }, [cards]);
-  useEffect(() => { saveData('nextGlobalNum', nextGlobalNum); }, [nextGlobalNum]);
-  useEffect(() => { if (feedback) { const t = setTimeout(() => setFeedback(null), 3000); return () => clearTimeout(t); } }, [feedback]);
+  const fb = useCallback((m: string, type: 'ok' | 'err' = 'ok') => {
+    setFeedback({ type, message: m });
+    setTimeout(() => setFeedback(null), 3000);
+  }, []);
 
-  const fb = (m: string) => setFeedback({ type: 'ok', message: m });
+  // Initial load: check session + fetch data
+  useEffect(() => {
+    authApi.me()
+      .then(async (user) => {
+        setMe(user);
+        const [us, bs, cs] = await Promise.all([
+          usersApi.list(),
+          boardsApi.list(),
+          cardsApi.list(),
+        ]);
+        setUsers(us);
+        setBoards(bs);
+        setCards(cs);
+      })
+      .catch(() => { /* not logged in */ })
+      .finally(() => setLoading(false));
+  }, []);
 
-  // Auth
-  const login = (u: User) => { setMe(u); setPage('dashboard'); };
-  const logout = () => setMe(null);
+  const login = async (user: User) => {
+    setMe(user);
+    setLoading(true);
+    try {
+      const [us, bs, cs] = await Promise.all([
+        usersApi.list(),
+        boardsApi.list(),
+        cardsApi.list(),
+      ]);
+      setUsers(us);
+      setBoards(bs);
+      setCards(cs);
+    } finally {
+      setLoading(false);
+      setPage('dashboard');
+    }
+  };
 
-  if (!me) return <Login onLogin={login} users={users} />;
+  const logout = async () => {
+    await authApi.logout();
+    setMe(null);
+    setUsers([]); setBoards([]); setCards([]);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-text-muted text-sm">Cargando...</div>
+      </div>
+    );
+  }
+
+  if (!me) return <Login onLogin={login} />;
 
   const isAdmin = me.isAdminTotal;
   const visibleBoards = isAdmin ? boards : boards.filter(b => me.boardRoles[b.id]);
   const visibleCards = isAdmin ? cards : cards.filter(c => me.boardRoles[c.boardId]);
 
-  // User CRUD
-  const saveUser = (form: Partial<User>) => {
-    if (editUser) {
-      setUsers(p => p.map(u => {
-        if (u.id !== editUser.id) return u;
-        const up = { ...u, ...form } as User;
-        if (!form.password) up.password = u.password;
-        if (form.isAdminTotal) up.boardRoles = {};
-        return up;
-      }));
-      if (editUser.id === me.id) setMe(p => p ? { ...p, ...form, password: form.password || p.password } as User : null);
-      fb('Actualizado');
-      setEditUser(null);
-    } else {
-      const nu: User = { id: generateId(), ...(form as User), createdAt: new Date().toISOString() };
-      if (nu.isAdminTotal) nu.boardRoles = {};
-      setUsers(p => [...p, nu]);
-      fb('Creado');
-      setShowCreateUser(false);
-    }
+  // --- User CRUD ---
+  const saveUser = async (form: Partial<User> & { password?: string }) => {
+    try {
+      if (editUser) {
+        const updated = await usersApi.update(editUser.id, form);
+        setUsers(p => p.map(u => u.id === editUser.id ? updated : u));
+        if (editUser.id === me.id) setMe(updated);
+        fb('Actualizado');
+        setEditUser(null);
+      } else {
+        const created = await usersApi.create(form as User & { password: string });
+        setUsers(p => [...p, created]);
+        fb('Creado');
+        setShowCreateUser(false);
+      }
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const deleteUser = () => {
+  const deleteUser = async () => {
     if (!confirmDeleteUser) return;
-    setUsers(p => p.filter(u => u.id !== confirmDeleteUser.id));
-    fb('Eliminado');
+    try {
+      await usersApi.delete(confirmDeleteUser.id);
+      setUsers(p => p.filter(u => u.id !== confirmDeleteUser.id));
+      fb('Eliminado');
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
     setConfirmDeleteUser(null);
   };
 
-  // Board CRUD
-  const saveBoard = (data: { name: string; prefix: string }) => {
-    if (editBoard) {
-      setBoards(p => p.map(b => b.id === editBoard.id ? { ...b, ...data } : b));
-      fb('Actualizado');
-      setEditBoard(null);
-    } else {
-      setBoards(p => [...p, { id: generateId(), ...data, nextNum: 1, columns: [], customFields: [] }]);
-      fb('Creado');
-      setShowCreateBoard(false);
-    }
+  // --- Board CRUD ---
+  const saveBoard = async (data: { name: string; prefix: string }) => {
+    try {
+      if (editBoard) {
+        const updated = await boardsApi.update(editBoard.id, data);
+        setBoards(p => p.map(b => b.id === editBoard.id ? updated : b));
+        fb('Actualizado');
+        setEditBoard(null);
+      } else {
+        const created = await boardsApi.create(data);
+        setBoards(p => [...p, created]);
+        fb('Creado');
+        setShowCreateBoard(false);
+      }
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const deleteBoard = () => {
+  const deleteBoard = async () => {
     if (!confirmDeleteBoard) return;
-    const id = confirmDeleteBoard.id;
-    setBoards(p => p.filter(b => b.id !== id));
-    setCards(p => p.filter(c => c.boardId !== id));
-    setUsers(p => p.map(u => { const br = { ...u.boardRoles }; delete br[id]; return { ...u, boardRoles: br }; }));
-    if (page === 'board-' + id) setPage('dashboard');
-    fb('Eliminado');
+    try {
+      await boardsApi.delete(confirmDeleteBoard.id);
+      const id = confirmDeleteBoard.id;
+      setBoards(p => p.filter(b => b.id !== id));
+      setCards(p => p.filter(c => c.boardId !== id));
+      setUsers(p => p.map(u => { const br = { ...u.boardRoles }; delete br[id]; return { ...u, boardRoles: br }; }));
+      if (page === 'board-' + id) setPage('dashboard');
+      fb('Eliminado');
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
     setConfirmDeleteBoard(null);
   };
 
-  const saveCols = (cols: Column[]) => {
-    setBoards(p => p.map(b => b.id === manageCols!.id ? { ...b, columns: cols } : b));
-    fb('Carriles guardados');
-    setManageCols(null);
+  const saveCols = async (cols: Column[]) => {
+    if (!manageCols) return;
+    try {
+      const updated = await boardsApi.saveColumns(manageCols.id, cols);
+      setBoards(p => p.map(b => b.id === manageCols.id ? updated : b));
+      fb('Carriles guardados');
+      setManageCols(null);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const saveCF = (fields: CustomField[]) => {
-    setBoards(p => p.map(b => b.id === manageCF!.id ? { ...b, customFields: fields } : b));
-    fb('Campos guardados');
-    setManageCF(null);
+  const saveCF = async (fields: CustomField[]) => {
+    if (!manageCF) return;
+    try {
+      const updated = await boardsApi.saveCustomFields(manageCF.id, fields);
+      setBoards(p => p.map(b => b.id === manageCF.id ? updated : b));
+      fb('Campos guardados');
+      setManageCF(null);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const saveField = (f: CustomField, bid: string, oldBid?: string) => {
-    setBoards(p => p.map(b => {
-      let nf = [...(b.customFields || [])];
-      if (b.id === bid) {
-        const idx = nf.findIndex(x => x.id === f.id);
-        if (idx > -1) nf[idx] = f; else nf.push(f);
-      } else if (b.id === oldBid) {
-        nf = nf.filter(x => x.id !== f.id);
-      }
-      return { ...b, customFields: nf };
-    }));
-    fb('Campo guardado');
-    setEditField(null);
-    setShowFieldForm(false);
+  const saveField = async (f: CustomField, bid: string, oldBid?: string) => {
+    try {
+      const board = boards.find(b => b.id === bid)!;
+      let fields = [...(board.customFields || [])];
+      const idx = fields.findIndex(x => x.id === f.id);
+      if (idx > -1) fields[idx] = f; else fields.push(f);
+      const updated = await boardsApi.saveCustomFields(bid, fields);
+      setBoards(p => p.map(b => {
+        if (b.id === bid) return updated;
+        if (b.id === oldBid) return { ...b, customFields: b.customFields.filter(x => x.id !== f.id) };
+        return b;
+      }));
+      fb('Campo guardado');
+      setEditField(null);
+      setShowFieldForm(false);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const deleteField = () => {
+  const deleteField = async () => {
     if (!confirmDeleteField) return;
-    setBoards(p => p.map(b => b.id === confirmDeleteField.boardId ? { ...b, customFields: b.customFields.filter(f => f.id !== confirmDeleteField.id) } : b));
-    fb('Campo eliminado');
+    try {
+      const board = boards.find(b => b.id === confirmDeleteField.boardId)!;
+      const fields = board.customFields.filter(f => f.id !== confirmDeleteField.id);
+      const updated = await boardsApi.saveCustomFields(confirmDeleteField.boardId, fields);
+      setBoards(p => p.map(b => b.id === confirmDeleteField.boardId ? updated : b));
+      fb('Campo eliminado');
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
     setConfirmDeleteField(null);
   };
 
-  // Card CRUD
-  const createCard = (data: { title: string; description: string; assigneeId: string; columnId: string; files: any[]; customData: Record<string, string> }) => {
+  // --- Card CRUD ---
+  const createCard = async (data: {
+    title: string; description: string; assigneeId: string;
+    columnId: string; priority: 'alta' | 'media' | 'baja' | ''; type: string;
+    files: any[]; customData: Record<string, string>;
+  }) => {
     const b = createCardBoard!;
-    const n = nextGlobalNum;
-    const code = b.prefix + '-' + n;
     const assignee = users.find(u => u.id === data.assigneeId);
-    const nc: Card = {
-      id: generateId(), boardId: b.id, columnId: data.columnId, code, title: data.title, description: data.description,
-      priority: '' as any, type: '', assigneeId: data.assigneeId, reporterId: me.id, reporterName: me.fullName,
-      createdAt: new Date().toISOString(), modifiedBy: null, modifiedAt: null, deleted: false, closed: false, closedAt: null, closedBy: null,
-      files: data.files || [], comments: [], customData: data.customData || {},
-      assigneeHistory: [{ id: generateId(), assigneeId: data.assigneeId, assigneeName: assignee?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }],
-      moveHistory: [],
-    };
-    setCards(p => [...p, nc]);
-    setNextGlobalNum(p => p + 1);
-    fb(`${code} creado`);
-    setCreateCardBoard(null);
+    try {
+      const newCard = await cardsApi.create({
+        boardId: b.id,
+        columnId: data.columnId,
+        title: data.title,
+        description: data.description,
+        priority: data.priority,
+        type: data.type,
+        assigneeId: data.assigneeId,
+        reporterId: me.id,
+        reporterName: me.fullName,
+        customData: data.customData || {},
+        files: data.files || [],
+        assigneeHistory: [{ id: generateId(), assigneeId: data.assigneeId, assigneeName: assignee?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }],
+        moveHistory: [],
+        deleted: false,
+        closed: false,
+        closedAt: null,
+        closedBy: null,
+        comments: [],
+      } as any);
+      setCards(p => [...p, newCard]);
+      fb(`${newCard.code} creado`);
+      setCreateCardBoard(null);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const updateCard = (card: Card, upd: Partial<Card>) => {
-    setCards(p => p.map(c => c.id === card.id ? { ...c, ...upd, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() } : c));
+  const updateCard = async (card: Card, upd: Partial<Card>) => {
+    try {
+      const updated = await cardsApi.update(card.id, {
+        ...upd,
+        modifiedBy: me.fullName,
+        modifiedAt: new Date().toISOString(),
+      });
+      setCards(p => p.map(c => c.id === card.id ? updated : c));
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
   };
 
-  const softDeleteCard = () => {
+  const softDeleteCard = async () => {
     if (!confirmDeleteCard) return;
-    setCards(p => p.map(c => c.id === confirmDeleteCard.id ? { ...c, deleted: true, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() } : c));
-    fb(`${confirmDeleteCard.code} eliminado`);
+    try {
+      await cardsApi.softDelete(confirmDeleteCard.id, me.fullName);
+      setCards(p => p.map(c => c.id === confirmDeleteCard.id
+        ? { ...c, deleted: true, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() }
+        : c
+      ));
+      fb(`${confirmDeleteCard.code} eliminado`);
+      setViewCard(null);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
     setConfirmDeleteCard(null);
-    setViewCard(null);
   };
 
   const moveCard = (card: Card, colId: string) => {
@@ -194,7 +279,6 @@ const Index = () => {
     const sc = [...(b?.columns || [])].sort((a, c) => a.order - c.order);
     const lastCol = sc[sc.length - 1];
 
-    // If moving to last col, show close confirmation
     if (colId === lastCol?.id) {
       setCloseConfirm({ card, colId });
       return;
@@ -202,8 +286,12 @@ const Index = () => {
 
     const fromCol = sc.find(c => c.id === card.columnId);
     const toCol = sc.find(c => c.id === colId);
-    const entry = { id: generateId(), fromCol: fromCol?.name || '—', toCol: toCol?.name || '—', movedAt: new Date().toISOString() };
-    setCards(p => p.map(c => c.id === card.id ? { ...c, columnId: colId, moveHistory: [...(c.moveHistory || []), entry], modifiedBy: me.fullName, modifiedAt: new Date().toISOString() } : c));
+    const moveEntry = { id: generateId(), fromCol: fromCol?.name || '—', toCol: toCol?.name || '—', movedAt: new Date().toISOString() };
+
+    cardsApi.move(card.id, { columnId: colId, moveEntry, modifiedBy: me.fullName })
+      .then(updated => setCards(p => p.map(c => c.id === card.id ? updated : c)))
+      .catch((e: any) => fb(e.message || 'Error', 'err'));
+
     fb(`Movido a ${toCol?.name || '—'}`);
   };
 
@@ -212,7 +300,7 @@ const Index = () => {
     if (card) moveCard(card, colId);
   };
 
-  const confirmCloseCase = () => {
+  const confirmCloseCase = async () => {
     if (!closeConfirm) return;
     const { card, colId } = closeConfirm;
     const b = boards.find(x => x.id === card.boardId);
@@ -220,13 +308,16 @@ const Index = () => {
     const fromCol = sc.find(c => c.id === card.columnId);
     const toCol = sc.find(c => c.id === colId);
     const moveEntry = { id: generateId(), fromCol: fromCol?.name || '—', toCol: toCol?.name || '—', movedAt: new Date().toISOString() };
-    setCards(p => p.map(c => c.id === card.id ? { ...c, columnId: colId, closed: true, closedAt: new Date().toISOString(), closedBy: me.fullName, moveHistory: [...(c.moveHistory || []), moveEntry], modifiedBy: me.fullName, modifiedAt: new Date().toISOString() } : c));
-    fb(`${card.code} cerrado`);
+
+    try {
+      const updated = await cardsApi.close(card.id, { columnId: colId, closedBy: me.fullName, moveEntry });
+      setCards(p => p.map(c => c.id === card.id ? updated : c));
+      fb(`${card.code} cerrado`);
+      setViewCard(null);
+    } catch (e: any) { fb(e.message || 'Error', 'err'); }
     setCloseConfirm(null);
-    setViewCard(null);
   };
 
-  // Page title
   const pageTitle = page === 'dashboard' ? 'Inicio' : page === 'users' ? 'Usuarios' : page === 'boards' ? 'Tableros' : page === 'fields' ? 'Campos Personalizados' : page === 'cases' ? 'Todos los Casos' : page.startsWith('board-') ? boards.find(b => 'board-' + b.id === page)?.name || '' : '';
 
   const unames = users.filter(u => !editUser || u.id !== editUser.id).map(u => u.username.toLowerCase());

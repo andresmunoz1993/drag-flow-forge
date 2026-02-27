@@ -29,7 +29,7 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
   }), [cards, board.id, me.id, filterAssigned, filterReported]);
 
   const role = me.isAdminTotal ? 'admin_total' : me.boardRoles[board.id];
-  const canCreate = role !== 'consulta';
+  const canCreate = role === 'admin_total' || role === 'admin_tablero' || role === 'ejecutor';
   const canMove = role === 'admin_total' || role === 'admin_tablero' || role === 'ejecutor';
   const canEditCols = me.isAdminTotal || me.boardRoles[board.id] === 'admin_tablero';
 

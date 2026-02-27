@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Board, Card, Column, CustomField } from '@/types';
+import type { Board, Card, Column, CustomField, User } from '@/types';
 import { CF_TYPES } from '@/types';
 import { Icons } from './Icons';
 import { generateId } from '@/lib/storage';
@@ -23,6 +23,7 @@ export const BoardForm: React.FC<BoardFormProps> = ({ board, onSave, onClose, ex
     setError('');
     if (!name.trim() || !prefix.trim()) { setError('Requerido'); return; }
     const px = prefix.trim().toUpperCase();
+    if (!/^[A-Z0-9]+$/.test(px)) { setError('Prefijo solo puede contener letras y números'); return; }
     if (existingPrefixes.includes(px) && (!isEdit || px !== board!.prefix)) { setError('Prefijo existe'); return; }
     onSave({ name: name.trim(), prefix: px });
   };
@@ -230,8 +231,6 @@ interface BoardManagementProps {
   onColumns: (b: Board) => void;
   onCustomFields: (b: Board) => void;
 }
-
-import type { User } from '@/types';
 
 const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users, onCreate, onEdit, onDelete, onColumns, onCustomFields }) => (
   <div className="fade-in">

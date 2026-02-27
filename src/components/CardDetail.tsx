@@ -4,6 +4,8 @@ import { Icons } from './Icons';
 import FileUpload from './FileUpload';
 import { formatDate, getInitials, generateId } from '@/lib/storage';
 
+const CARD_TYPES = ['Bug', 'Mejora', 'Soporte', 'Tarea', 'Otro'];
+
 interface CardDetailProps {
   card: Card;
   board: Board | undefined;
@@ -27,6 +29,8 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
   const [editCommentText, setEditCommentText] = useState('');
   const [editCommentFiles, setEditCommentFiles] = useState<FileAttachment[]>([]);
   const [customData, setCD] = useState<Record<string, string>>({ ...(card.customData || {}) });
+  const [priority, setPriority] = useState<'alta' | 'media' | 'baja' | ''>(card.priority || '');
+  const [cardType, setCardType] = useState(card.type || '');
 
   const col = board?.columns.find(c => c.id === card.columnId);
   const assignee = users.find(u => u.id === card.assigneeId);
@@ -42,7 +46,7 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
   const saveEdit = () => {
     const allFiles = [...(card.files || []), ...newFiles];
-    const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData };
+    const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData, priority, type: cardType };
     if (assigneeId !== card.assigneeId) {
       const a = users.find(u => u.id === assigneeId);
       upd.assigneeHistory = [...(card.assigneeHistory || []), { id: generateId(), assigneeId, assigneeName: a?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }];
@@ -143,7 +147,7 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
             {editing && (
               <div className="flex gap-2 mt-3">
                 <button className="px-3 py-[7px] bg-surface-3 text-foreground border border-border rounded-md text-[12px] font-semibold cursor-pointer hover:bg-surface-4"
-                  onClick={() => { setEditing(false); setAssigneeId(card.assigneeId || ''); setDesc(card.description || ''); setNewFiles([]); setCD({ ...(card.customData || {}) }); }}>Cancelar</button>
+                  onClick={() => { setEditing(false); setAssigneeId(card.assigneeId || ''); setDesc(card.description || ''); setNewFiles([]); setCD({ ...(card.customData || {}) }); setPriority(card.priority || ''); setCardType(card.type || ''); }}>Cancelar</button>
                 <button className="px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110" onClick={saveEdit}>Guardar</button>
               </div>
             )}
@@ -219,6 +223,26 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
           {/* Sidebar */}
           <div className="bg-surface-2 rounded-lg p-4 border border-border self-start">
             <div><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Estado</div><span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${card.closed ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}`}>{card.closed ? 'Cerrado' : col?.name || '—'}</span></div>
+            <div className="mt-3">
+              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Prioridad</div>
+              {editing
+                ? <select className="w-full py-1.5 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none cursor-pointer mt-1" value={priority} onChange={e => setPriority(e.target.value as 'alta' | 'media' | 'baja' | '')}>
+                    <option value="">—</option>
+                    <option value="alta">Alta</option>
+                    <option value="media">Media</option>
+                    <option value="baja">Baja</option>
+                  </select>
+                : <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${priority === 'alta' ? 'bg-destructive/10 text-destructive' : priority === 'media' ? 'bg-warning/10 text-warning' : priority === 'baja' ? 'bg-success/10 text-success' : 'bg-surface-3 text-text-muted'}`}>{priority ? priority.charAt(0).toUpperCase() + priority.slice(1) : '—'}</span>}
+            </div>
+            <div className="mt-3">
+              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Tipo</div>
+              {editing
+                ? <select className="w-full py-1.5 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none cursor-pointer mt-1" value={cardType} onChange={e => setCardType(e.target.value)}>
+                    <option value="">—</option>
+                    {CARD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                : <div className="text-[13px] text-foreground">{cardType || <span className="text-text-muted italic">—</span>}</div>}
+            </div>
             <div className="mt-3"><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Tablero</div><div className="text-[13px] text-foreground">{board?.name}</div></div>
             <div className="mt-3">
               <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Responsable</div>

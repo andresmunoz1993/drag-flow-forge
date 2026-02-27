@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import type { Board, Card, User, CustomField, FileAttachment } from '@/types';
+import type { Board, User, CustomField, FileAttachment } from '@/types';
 import { Icons } from './Icons';
 import FileUpload from './FileUpload';
+
+const CARD_TYPES = ['Bug', 'Mejora', 'Soporte', 'Tarea', 'Otro'];
 
 interface CreateCardProps {
   board: Board;
   users: User[];
   me: User;
-  onSave: (data: { title: string; description: string; assigneeId: string; columnId: string; files: FileAttachment[]; customData: Record<string, string> }) => void;
+  onSave: (data: { title: string; description: string; assigneeId: string; columnId: string; priority: 'alta' | 'media' | 'baja' | ''; type: string; files: FileAttachment[]; customData: Record<string, string> }) => void;
   onClose: () => void;
 }
 
@@ -16,6 +18,8 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [assigneeId, setAssigneeId] = useState(assignable[0]?.id || '');
+  const [priority, setPriority] = useState<'alta' | 'media' | 'baja' | ''>('');
+  const [cardType, setCardType] = useState('');
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [customData, setCD] = useState<Record<string, string>>(() => {
     const d: Record<string, string> = {};
@@ -33,7 +37,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
     if (!title.trim()) { setError('Título requerido'); return; }
     if (!firstCol) { setError('Sin carriles'); return; }
     if (!assigneeId) { setError('Responsable requerido'); return; }
-    onSave({ title: title.trim(), description: desc, assigneeId, columnId: firstCol.id, files, customData });
+    onSave({ title: title.trim(), description: desc, assigneeId, columnId: firstCol.id, priority, type: cardType, files, customData });
   };
 
   const renderField = (cf: CustomField) => {
@@ -64,6 +68,24 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
           <div className="mb-4">
             <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Descripción</label>
             <textarea className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary min-h-[80px] resize-y leading-relaxed" value={desc} onChange={e => setDesc(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-x-3.5 mb-4">
+            <div>
+              <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Prioridad</label>
+              <select className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none cursor-pointer" value={priority} onChange={e => setPriority(e.target.value as 'alta' | 'media' | 'baja' | '')}>
+                <option value="">—</option>
+                <option value="alta">Alta</option>
+                <option value="media">Media</option>
+                <option value="baja">Baja</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Tipo</label>
+              <select className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none cursor-pointer" value={cardType} onChange={e => setCardType(e.target.value)}>
+                <option value="">—</option>
+                {CARD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
           </div>
           <div className="mb-4">
             <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Responsable</label>

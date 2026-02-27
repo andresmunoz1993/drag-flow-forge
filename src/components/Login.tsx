@@ -1,25 +1,27 @@
 import React, { useState } from 'react';
 import type { User } from '@/types';
 import { Icons } from './Icons';
+import { authApi } from '@/lib/api';
 
 interface LoginProps {
   onLogin: (user: User) => void;
-  users: User[];
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
+const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const user = users.find(u => u.username === username.trim() && u.password === password);
-    if (!user) { setError('Credenciales incorrectas'); return; }
-    if (!user.active) { setError('Usuario desactivado'); return; }
-    onLogin(user);
+    try {
+      const user = await authApi.login(username.trim(), password);
+      onLogin(user);
+    } catch (err: any) {
+      setError(err.message || 'Credenciales incorrectas');
+    }
   };
 
   return (
@@ -61,7 +63,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
             Iniciar Sesión
           </button>
         </form>
-        <div className="mt-5 text-center text-[11px] text-text-muted">admin / admin123</div>
+        <div className="mt-5 text-center text-[11px] text-text-muted">Allers — Sistema de Gestión</div>
       </div>
     </div>
   );
