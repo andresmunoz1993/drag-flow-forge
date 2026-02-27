@@ -28,6 +28,7 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSave, onClose, existingUser
     isAdminTotal: user?.isAdminTotal || false,
     active: user?.active !== undefined ? user.active : true,
     boardRoles: user?.boardRoles ? { ...user.boardRoles } : {} as Record<string, RoleKey>,
+    idSAP: user?.idSAP || '',
   });
   const [showPw, setShowPw] = useState(!isEdit);
   const [error, setError] = useState('');
@@ -92,6 +93,13 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSave, onClose, existingUser
             <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Correo</label>
             <input className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary placeholder:text-text-muted"
               type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="correo@ejemplo.com" />
+          </div>
+          <div className="mb-4">
+            <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">
+              ID SAP <span className="normal-case font-normal text-text-muted">(SlpCode — opcional, para integración SAP B1)</span>
+            </label>
+            <input className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary placeholder:text-text-muted font-mono"
+              value={form.idSAP} onChange={e => set('idSAP', e.target.value)} placeholder="Ej: 5" />
           </div>
 
           <div className="flex gap-6 mb-4">

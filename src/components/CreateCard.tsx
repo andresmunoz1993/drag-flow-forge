@@ -71,7 +71,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
               {assignable.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
             </select>
           </div>
-          {(board.customFields || []).map(cf => (
+          {(board.customFields || []).filter(cf => !(cf.formula === 'createdAt' && cf.formulaDays !== undefined && board.landing?.enabled)).map(cf => (
             <div key={cf.id} className="mb-4">
               <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">{cf.name}</label>
               {renderField(cf)}

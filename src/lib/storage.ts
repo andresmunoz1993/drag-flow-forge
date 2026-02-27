@@ -1,4 +1,21 @@
-import type { Board, Card, User } from '@/types';
+import type { Board, Card, CustomField, User } from '@/types';
+
+/** Calcula los campos con fórmula y los aplica sobre customData */
+export const applyFormulaFields = (
+  fields: CustomField[],
+  customData: Record<string, string>,
+  createdAt: string,
+): Record<string, string> => {
+  const cd = { ...customData };
+  fields.forEach(cf => {
+    if (cf.formula === 'createdAt' && cf.formulaDays !== undefined) {
+      const d = new Date(createdAt);
+      d.setDate(d.getDate() + cf.formulaDays);
+      cd[cf.id] = d.toISOString().split('T')[0];
+    }
+  });
+  return cd;
+};
 
 const PREFIX = 'a5_';
 
@@ -70,12 +87,12 @@ export const downloadFile = (data: string, name: string): void => {
 export const defaultBoards = (): Board[] => [
   { id: 'inc', name: 'Incidencias Allers', prefix: 'AGDS', nextNum: 3900, columns: [{ id: 'c1', name: 'En Análisis', order: 0 }, { id: 'c2', name: 'Por hacer', order: 1 }, { id: 'c3', name: 'En Progreso', order: 2 }, { id: 'c4', name: 'Hecho', order: 3 }, { id: 'c5', name: 'Entregar', order: 4 }], customFields: [] },
   { id: 'cc', name: 'Allers - Call Center', prefix: 'ACC', nextNum: 74200, columns: [{ id: 'c6', name: 'Call Center', order: 0 }, { id: 'c7', name: 'Servicio al cliente', order: 1 }, { id: 'c8', name: 'Almacén', order: 2 }, { id: 'c9', name: 'Logística', order: 3 }, { id: 'c10', name: 'Calidad', order: 4 }, { id: 'c11', name: 'Serv. Técnico', order: 5 }, { id: 'c12', name: 'Cartera', order: 6 }, { id: 'c13', name: 'Compras', order: 7 }, { id: 'c14', name: 'Comercial', order: 8 }, { id: 'c15', name: 'Cotizaciones', order: 9 }, { id: 'c16', name: 'Entregado para cierre', order: 10 }, { id: 'c17', name: 'Cerrada', order: 11 }, { id: 'c18', name: 'Entregar', order: 12 }], customFields: [] },
-  { id: 'sac', name: 'Allers - Servicio al cliente', prefix: 'ASAC', nextNum: 78900, columns: [{ id: 'c19', name: 'Servicio al cliente', order: 0 }, { id: 'c20', name: 'Almacén', order: 1 }, { id: 'c21', name: 'Logística', order: 2 }, { id: 'c22', name: 'Calidad', order: 3 }, { id: 'c23', name: 'Tiendas', order: 4 }, { id: 'c24', name: 'Serv. Técnico', order: 5 }, { id: 'c25', name: 'Cartera', order: 6 }, { id: 'c26', name: 'Compras', order: 7 }, { id: 'c27', name: 'Comercial', order: 8 }, { id: 'c28', name: 'Cotizaciones', order: 9 }, { id: 'c29', name: 'Entregado para cierre', order: 10 }, { id: 'c30', name: 'SEGUIMIENTO CALLCENTER', order: 11 }, { id: 'c31', name: 'Cerrada', order: 12 }, { id: 'c32', name: 'Entregar', order: 13 }], customFields: [] },
+  { id: 'sac', name: 'Allers - Servicio al cliente', prefix: 'ASAC', nextNum: 78900, columns: [{ id: 'c19', name: 'Servicio al cliente', order: 0 }, { id: 'c20', name: 'Almacén', order: 1 }, { id: 'c21', name: 'Logística', order: 2 }, { id: 'c22', name: 'Calidad', order: 3 }, { id: 'c23', name: 'Tiendas', order: 4 }, { id: 'c24', name: 'Serv. Técnico', order: 5 }, { id: 'c25', name: 'Cartera', order: 6 }, { id: 'c26', name: 'Compras', order: 7 }, { id: 'c27', name: 'Comercial', order: 8 }, { id: 'c28', name: 'Cotizaciones', order: 9 }, { id: 'c29', name: 'Entregado para cierre', order: 10 }, { id: 'c30', name: 'SEGUIMIENTO CALLCENTER', order: 11 }, { id: 'c31', name: 'Cerrada', order: 12 }, { id: 'c32', name: 'Entregar', order: 13 }], customFields: [{ id: 'cf_ffs', name: 'Fecha Final de Solución', type: 'date', options: [], formula: 'createdAt', formulaDays: 15 }], landing: { enabled: true } },
 ];
 
 export const defaultUsers = (): User[] => [
   { id: '1', username: 'admin', password: 'admin123', fullName: 'Administrador General', email: 'admin@allers.com', isAdminTotal: true, active: true, boardRoles: {}, createdAt: new Date().toISOString() },
-  { id: '2', username: 'mgarcia', password: 'maria123', fullName: 'María García', email: 'mgarcia@allers.com', isAdminTotal: false, active: true, boardRoles: { inc: 'admin_tablero', cc: 'ejecutor' }, createdAt: new Date().toISOString() },
+  { id: '2', username: 'mgarcia', password: 'maria123', fullName: 'María García', email: 'mgarcia@allers.com', isAdminTotal: false, active: true, boardRoles: { inc: 'admin_tablero', cc: 'ejecutor', sac: 'admin_tablero' }, createdAt: new Date().toISOString() },
   { id: '3', username: 'plopez', password: 'pedro123', fullName: 'Pedro López', email: 'plopez@allers.com', isAdminTotal: false, active: true, boardRoles: { cc: 'ejecutor', sac: 'ejecutor' }, createdAt: new Date().toISOString() },
   { id: '4', username: 'amoreno', password: 'ana123', fullName: 'Ana Moreno', email: 'amoreno@allers.com', isAdminTotal: false, active: true, boardRoles: { inc: 'consulta', sac: 'consulta' }, createdAt: new Date().toISOString() },
 ];

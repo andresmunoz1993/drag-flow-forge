@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import type { User, Board, Card, Column, CustomField } from '@/types';
+import type { User, Board, Card, Column, CustomField, SapConfig } from '@/types';
 import { ROLE_LABELS } from '@/types';
-import { loadData, saveData, generateId, getInitials } from '@/lib/storage';
+import { loadData, saveData, generateId, getInitials, applyFormulaFields } from '@/lib/storage';
 import { defaultUsers, defaultBoards, defaultCards } from '@/lib/storage';
 import { Icons } from '@/components/Icons';
 
@@ -9,12 +9,13 @@ import Login from '@/components/Login';
 import Dashboard from '@/components/Dashboard';
 import UserList from '@/components/UserList';
 import UserForm from '@/components/UserForm';
-import BoardManagement, { BoardForm, ColumnManager, CustomFieldManager } from '@/components/BoardManagement';
+import BoardManagement, { BoardForm, ColumnManager, CustomFieldManager, LandingManager, SapManager } from '@/components/BoardManagement';
 import Kanban from '@/components/Kanban';
 import CreateCard from '@/components/CreateCard';
 import CardDetail from '@/components/CardDetail';
 import CaseList from '@/components/CaseList';
 import CustomFieldList, { FieldForm } from '@/components/CustomFieldList';
+import EmbeddedLandingForm from '@/components/EmbeddedLandingForm';
 import Confirm from '@/components/Confirm';
 
 const Index = () => {
@@ -48,6 +49,8 @@ const Index = () => {
   const [showFieldForm, setShowFieldForm] = useState(false);
   const [editField, setEditField] = useState<(CustomField & { boardId?: string }) | null>(null);
   const [confirmDeleteField, setConfirmDeleteField] = useState<(CustomField & { boardId: string; boardName: string }) | null>(null);
+  const [manageLanding, setManageLanding] = useState<Board | null>(null);
+  const [manageSap, setManageSap] = useState<Board | null>(null);
 
   // Persist
   useEffect(() => { saveData('users', users); }, [users]);
@@ -127,6 +130,18 @@ const Index = () => {
     setManageCols(null);
   };
 
+  const saveLanding = (landing: import('@/types').BoardLanding) => {
+    setBoards(p => p.map(b => b.id === manageLanding!.id ? { ...b, landing } : b));
+    fb('Landing guardado');
+    setManageLanding(null);
+  };
+
+  const saveSap = (config: SapConfig | undefined) => {
+    setBoards(p => p.map(b => b.id === manageSap!.id ? { ...b, sap: config } : b));
+    fb(config ? 'Integración SAP guardada' : 'Integración SAP desactivada');
+    setManageSap(null);
+  };
+
   const saveCF = (fields: CustomField[]) => {
     setBoards(p => p.map(b => b.id === manageCF!.id ? { ...b, customFields: fields } : b));
     fb('Campos guardados');
@@ -162,18 +177,43 @@ const Index = () => {
     const n = nextGlobalNum;
     const code = b.prefix + '-' + n;
     const assignee = users.find(u => u.id === data.assigneeId);
+    const createdAt = new Date().toISOString();
+    // Auto-calculate formula fields if the board has a landing enabled
+    const customData = b.landing?.enabled
+      ? applyFormulaFields(b.customFields || [], data.customData || {}, createdAt)
+      : (data.customData || {});
     const nc: Card = {
       id: generateId(), boardId: b.id, columnId: data.columnId, code, title: data.title, description: data.description,
       priority: '' as any, type: '', assigneeId: data.assigneeId, reporterId: me.id, reporterName: me.fullName,
-      createdAt: new Date().toISOString(), modifiedBy: null, modifiedAt: null, deleted: false, closed: false, closedAt: null, closedBy: null,
-      files: data.files || [], comments: [], customData: data.customData || {},
-      assigneeHistory: [{ id: generateId(), assigneeId: data.assigneeId, assigneeName: assignee?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }],
+      createdAt, modifiedBy: null, modifiedAt: null, deleted: false, closed: false, closedAt: null, closedBy: null,
+      files: data.files || [], comments: [], customData,
+      assigneeHistory: [{ id: generateId(), assigneeId: data.assigneeId, assigneeName: assignee?.fullName || 'Desconocido', assignedAt: createdAt }],
       moveHistory: [],
     };
     setCards(p => [...p, nc]);
     setNextGlobalNum(p => p + 1);
     fb(`${code} creado`);
     setCreateCardBoard(null);
+  };
+
+  // Card creation from embedded landing form (auto-assigns, formula fields, updates React state)
+  const createCardFromLanding = (board: Board, data: { title: string; description: string; assigneeId: string; columnId: string; files: any[]; customData: Record<string, string> }): string => {
+    const n = nextGlobalNum;
+    const code = board.prefix + '-' + n;
+    const createdAt = new Date().toISOString();
+    const customData = applyFormulaFields(board.customFields || [], data.customData || {}, createdAt);
+    const nc: Card = {
+      id: generateId(), boardId: board.id, columnId: data.columnId, code, title: data.title, description: data.description,
+      priority: '' as any, type: '', assigneeId: data.assigneeId, reporterId: 'external', reporterName: 'Portal Externo',
+      createdAt, modifiedBy: null, modifiedAt: null, deleted: false, closed: false, closedAt: null, closedBy: null,
+      files: data.files || [], comments: [], customData,
+      assigneeHistory: [{ id: generateId(), assigneeId: data.assigneeId, assigneeName: users.find(u => u.id === data.assigneeId)?.fullName || 'Desconocido', assignedAt: createdAt }],
+      moveHistory: [],
+    };
+    setCards(p => [...p, nc]);
+    setNextGlobalNum(p => p + 1);
+    fb(`${code} creado desde formulario`);
+    return code;
   };
 
   const updateCard = (card: Card, upd: Partial<Card>) => {
@@ -227,7 +267,7 @@ const Index = () => {
   };
 
   // Page title
-  const pageTitle = page === 'dashboard' ? 'Inicio' : page === 'users' ? 'Usuarios' : page === 'boards' ? 'Tableros' : page === 'fields' ? 'Campos Personalizados' : page === 'cases' ? 'Todos los Casos' : page.startsWith('board-') ? boards.find(b => 'board-' + b.id === page)?.name || '' : '';
+  const pageTitle = page === 'dashboard' ? 'Inicio' : page === 'users' ? 'Usuarios' : page === 'boards' ? 'Tableros' : page === 'fields' ? 'Campos Personalizados' : page === 'cases' ? 'Todos los Casos' : page.startsWith('board-') ? boards.find(b => 'board-' + b.id === page)?.name || '' : page.startsWith('form-') ? (boards.find(b => 'form-' + b.id === page)?.name || 'Formulario') : '';
 
   const unames = users.filter(u => !editUser || u.id !== editUser.id).map(u => u.username.toLowerCase());
   const prefixes = boards.filter(b => !editBoard || b.id !== editBoard.id).map(b => b.prefix);
@@ -271,6 +311,24 @@ const Index = () => {
               )}
             </div>
           ))}
+
+          {/* Formularios — only boards with landing enabled and user has access */}
+          {(() => {
+            const formBoards = visibleBoards.filter(b => b.landing?.enabled);
+            if (!formBoards.length) return null;
+            return (
+              <>
+                <div className="text-[10px] font-semibold text-text-muted uppercase tracking-[1px] py-3 px-2.5">Formularios</div>
+                {formBoards.map(b => (
+                  <div key={b.id} className={`flex items-center gap-2.5 py-[9px] px-3 rounded-lg text-[13px] cursor-pointer select-none transition-all ${page === 'form-' + b.id ? 'bg-success/10 text-success' : 'text-text-secondary hover:bg-surface-3 hover:text-foreground'}`}
+                    onClick={() => setPage('form-' + b.id)}>
+                    <Icons.globe size={16} />
+                    <span className="flex-1 truncate">{b.name}</span>
+                  </div>
+                ))}
+              </>
+            );
+          })()}
         </div>
         <div className="py-3.5 px-[18px] border-t border-border flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[12px] font-bold shrink-0">{getInitials(me.fullName)}</div>
@@ -293,7 +351,7 @@ const Index = () => {
         <div className="p-6 px-7">
           {page === 'dashboard' && <Dashboard users={users} boards={boards} cards={cards} />}
           {page === 'users' && isAdmin && <UserList users={users} me={me} boards={boards} onEdit={u => setEditUser(u)} onDelete={u => setConfirmDeleteUser(u)} onCreate={() => setShowCreateUser(true)} />}
-          {page === 'boards' && isAdmin && <BoardManagement boards={boards} cards={cards} users={users} onCreate={() => setShowCreateBoard(true)} onEdit={b => setEditBoard(b)} onDelete={b => setConfirmDeleteBoard(b)} onColumns={b => setManageCols(b)} onCustomFields={b => setManageCF(b)} />}
+          {page === 'boards' && isAdmin && <BoardManagement boards={boards} cards={cards} users={users} me={me} onCreate={() => setShowCreateBoard(true)} onEdit={b => setEditBoard(b)} onDelete={b => setConfirmDeleteBoard(b)} onColumns={b => setManageCols(b)} onCustomFields={b => setManageCF(b)} onLanding={b => setManageLanding(b)} onSap={b => setManageSap(b)} />}
           {page === 'cases' && <CaseList cards={visibleCards} boards={boards} users={users} onCardClick={c => setViewCard(c)} />}
           {page === 'fields' && isAdmin && <CustomFieldList boards={boards} onAdd={() => setShowFieldForm(true)} onEdit={f => setEditField(f)} onDelete={f => setConfirmDeleteField(f)} />}
           {page.startsWith('board-') && (() => {
@@ -302,6 +360,11 @@ const Index = () => {
             if (!isAdmin && !me.boardRoles[b.id]) return <div className="text-center py-16">🔒 Sin acceso</div>;
             return <Kanban board={b} cards={cards} users={users} me={me} onColumns={x => setManageCols(x)} onCreate={x => setCreateCardBoard(x)} onCardClick={c => setViewCard(c)} onMoveCard={(cid, colId) => moveCardById(cid, colId)} onCloseCase={x => setCloseConfirm(x)} />;
           })()}
+          {page.startsWith('form-') && (() => {
+            const b = boards.find(x => 'form-' + x.id === page);
+            if (!b || !b.landing?.enabled) return <div className="text-center py-16 text-text-muted">Formulario no disponible.</div>;
+            return <EmbeddedLandingForm board={b} users={users} onCreateCard={data => createCardFromLanding(b, data)} />;
+          })()}
         </div>
       </div>
 
@@ -309,6 +372,8 @@ const Index = () => {
       {(showCreateUser || editUser) && <UserForm user={editUser} onSave={saveUser} onClose={() => { setEditUser(null); setShowCreateUser(false); }} existingUsernames={unames} me={me} boards={boards} />}
       {(showCreateBoard || editBoard) && <BoardForm board={editBoard} onSave={saveBoard} onClose={() => { setShowCreateBoard(false); setEditBoard(null); }} existingPrefixes={prefixes} />}
       {manageCols && <ColumnManager board={manageCols} cards={cards} onSave={saveCols} onClose={() => setManageCols(null)} />}
+      {manageLanding && <LandingManager board={manageLanding} onSave={saveLanding} onClose={() => setManageLanding(null)} />}
+      {manageSap && isAdmin && <SapManager board={manageSap} onSave={saveSap} onClose={() => setManageSap(null)} />}
       {manageCF && <CustomFieldManager board={manageCF} onSave={saveCF} onClose={() => setManageCF(null)} />}
       {(showFieldForm || editField) && <FieldForm field={editField} boards={boards} onSave={saveField} onClose={() => { setShowFieldForm(false); setEditField(null); }} />}
       {createCardBoard && <CreateCard board={createCardBoard} users={users} me={me} onSave={createCard} onClose={() => setCreateCardBoard(null)} />}

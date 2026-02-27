@@ -78,10 +78,21 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
   const handleMove = (colId: string) => { onMove(card, colId); setCard(c => ({ ...c, columnId: colId })); };
 
+  const isFormulaField = (cf: CustomField) =>
+    cf.formula === 'createdAt' && cf.formulaDays !== undefined && board?.landing?.enabled;
+
   const renderCFField = (cf: CustomField) => {
     const val = customData[cf.id] || '';
     const onChange = (v: string) => setCD(p => ({ ...p, [cf.id]: v }));
-    if (!editing) return <div className="text-[13px]" style={{ color: val ? 'hsl(var(--text-primary))' : 'hsl(var(--text-muted))' }}>{val || '—'}</div>;
+    // Formula fields are always read-only
+    if (!editing || isFormulaField(cf)) {
+      return (
+        <div className="flex items-center gap-2">
+          <div className="text-[13px]" style={{ color: val ? 'hsl(var(--text-primary))' : 'hsl(var(--text-muted))' }}>{val || '—'}</div>
+          {isFormulaField(cf) && <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary"><Icons.formula size={9} /> Auto</span>}
+        </div>
+      );
+    }
     switch (cf.type) {
       case 'dropdown': return <select className="w-full py-2 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none cursor-pointer" value={val} onChange={e => onChange(e.target.value)}><option value="">—</option>{cf.options.map(o => <option key={o} value={o}>{o}</option>)}</select>;
       case 'date': return <input className="w-full py-2 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none" type="date" value={val} onChange={e => onChange(e.target.value)} />;

@@ -8,6 +8,25 @@ export interface User {
   active: boolean;
   boardRoles: Record<string, 'admin_tablero' | 'ejecutor' | 'consulta'>;
   createdAt: string;
+  /** Código de vendedor en SAP Business One (SlpCode) */
+  idSAP?: string;
+}
+
+export interface SapConfig {
+  baseUrl: string;    // e.g. "https://sap-server:50000"
+  companyDB: string;  // e.g. "ALLERS_PROD"
+  username: string;   // SAP Service Layer user
+  password: string;
+  queryName: string;  // Nombre de la xSQL query en Service Layer
+}
+
+export interface SapOrderResult {
+  docNum: string;
+  itemCount: number;
+  totalValue: number;
+  currency: string;
+  salesPersonCode: string;
+  salesPersonName: string;
 }
 
 export interface Column {
@@ -21,6 +40,14 @@ export interface CustomField {
   name: string;
   type: 'dropdown' | 'text' | 'number' | 'date';
   options: string[];
+  /** Para campos de tipo fecha: base de cálculo automático */
+  formula?: 'createdAt';
+  /** Días a sumar a la fecha base */
+  formulaDays?: number;
+}
+
+export interface BoardLanding {
+  enabled: boolean;
 }
 
 export interface Board {
@@ -30,6 +57,8 @@ export interface Board {
   nextNum: number;
   columns: Column[];
   customFields: CustomField[];
+  landing?: BoardLanding;
+  sap?: SapConfig;
 }
 
 export interface FileAttachment {

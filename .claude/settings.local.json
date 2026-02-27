@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/vite build)",
+      "Bash(bun --version)",
+      "Bash(node --version)",
+      "Bash(npm --version)",
+      "Bash(npm install)",
+      "Bash(echo \"path: $PATH\")",
+      "Bash(node node_modules/.bin/tsc --noEmit)",
+      "Bash(node node_modules/typescript/bin/tsc --noEmit)"
+    ]
+  }
+}

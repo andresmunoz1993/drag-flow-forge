@@ -1,7 +1,9 @@
 import {
   Users, LayoutGrid, Plus, Edit, Trash2, LogOut, Eye, EyeOff, Home,
   X, Search, ChevronUp, ChevronDown, Settings, Columns, List,
-  Paperclip, Download, MessageSquare, Move, Check, Lock, SlidersHorizontal
+  Paperclip, Download, MessageSquare, Move, Check, Lock, SlidersHorizontal,
+  Globe, Copy, ExternalLink, Calculator, Database, Loader2, Package,
+  AlertCircle, ShieldCheck,
 } from 'lucide-react';
 
 export const Icons = {
@@ -28,4 +30,13 @@ export const Icons = {
   check: Check,
   lock: Lock,
   fields: SlidersHorizontal,
+  globe: Globe,
+  copy: Copy,
+  externalLink: ExternalLink,
+  formula: Calculator,
+  sap: Database,
+  spinner: Loader2,
+  package: Package,
+  alert: AlertCircle,
+  shield: ShieldCheck,
 };

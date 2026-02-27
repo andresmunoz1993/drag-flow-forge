@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Board, Card, Column, CustomField } from '@/types';
+import type { Board, BoardLanding, Card, Column, CustomField, SapConfig } from '@/types';
 import { CF_TYPES } from '@/types';
 import { Icons } from './Icons';
 import { generateId } from '@/lib/storage';
@@ -152,14 +152,21 @@ export const CustomFieldManager: React.FC<CFManagerProps> = ({ board, onSave, on
   const [name, setName] = useState('');
   const [type, setType] = useState<CustomField['type']>('dropdown');
   const [options, setOptions] = useState('');
+  const [useFormula, setUseFormula] = useState(false);
+  const [formulaDays, setFormulaDays] = useState(15);
   const [error, setError] = useState('');
 
   const add = () => {
     if (!name.trim()) { setError('Nombre requerido'); return; }
     if (fields.find(f => f.name.toLowerCase() === name.trim().toLowerCase())) { setError('Ya existe'); return; }
     setError('');
-    setFields(p => [...p, { id: generateId(), name: name.trim(), type, options: type === 'dropdown' ? options.split(',').map(o => o.trim()).filter(Boolean) : [] }]);
-    setName(''); setOptions('');
+    const newField: CustomField = {
+      id: generateId(), name: name.trim(), type,
+      options: type === 'dropdown' ? options.split(',').map(o => o.trim()).filter(Boolean) : [],
+      ...(type === 'date' && useFormula ? { formula: 'createdAt', formulaDays } : {}),
+    };
+    setFields(p => [...p, newField]);
+    setName(''); setOptions(''); setUseFormula(false); setFormulaDays(15);
   };
 
   return (
@@ -174,6 +181,9 @@ export const CustomFieldManager: React.FC<CFManagerProps> = ({ board, onSave, on
               <div key={f.id} className="flex items-center gap-2 p-2 bg-surface-2 border border-border rounded-md text-[12px]">
                 <span className="font-semibold text-foreground min-w-[80px]">{f.name}</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-surface-3 text-text-secondary">{CF_TYPES[f.type]}</span>
+                {f.formula === 'createdAt' && f.formulaDays !== undefined && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary"><Icons.formula size={9} /> +{f.formulaDays}d</span>
+                )}
                 {f.type === 'dropdown' && f.options.length > 0 && <span className="text-text-secondary flex-1 truncate">{f.options.join(', ')}</span>}
                 <button className="px-2 py-1 bg-destructive/10 text-destructive rounded text-[11px] cursor-pointer" onClick={() => setFields(p => p.filter(x => x.id !== f.id))}><Icons.x size={12} /></button>
               </div>
@@ -206,6 +216,22 @@ export const CustomFieldManager: React.FC<CFManagerProps> = ({ board, onSave, on
                 value={options} onChange={e => setOptions(e.target.value)} placeholder="Opción 1, Opción 2, Opción 3" />
             </div>
           )}
+          {type === 'date' && (
+            <div className="mb-2.5 p-3 bg-surface-3 border border-border rounded-lg">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" className="w-4 h-4 accent-primary" checked={useFormula} onChange={e => setUseFormula(e.target.checked)} />
+                <span className="text-[12px] font-semibold text-text-secondary flex items-center gap-1.5"><Icons.formula size={12} /> Calcular automáticamente</span>
+              </label>
+              {useFormula && (
+                <div className="flex items-center gap-2 mt-2.5">
+                  <span className="text-[12px] text-text-muted">Fecha de creación +</span>
+                  <input type="number" min={1} max={365} className="w-16 py-1 px-2 bg-surface-2 border border-border rounded text-foreground text-[12px] outline-none focus:border-primary text-center"
+                    value={formulaDays} onChange={e => setFormulaDays(Math.max(1, parseInt(e.target.value) || 1))} />
+                  <span className="text-[12px] text-text-muted">días</span>
+                </div>
+              )}
+            </div>
+          )}
           <button className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-50"
             onClick={add} disabled={!name.trim()}><Icons.plus size={14} /> Agregar Campo</button>
         </div>
@@ -219,21 +245,190 @@ export const CustomFieldManager: React.FC<CFManagerProps> = ({ board, onSave, on
   );
 };
 
+/* ===== Landing Manager ===== */
+interface LandingManagerProps {
+  board: Board;
+  onSave: (landing: BoardLanding) => void;
+  onClose: () => void;
+}
+
+export const LandingManager: React.FC<LandingManagerProps> = ({ board, onSave, onClose }) => {
+  const [enabled, setEnabled] = useState(board.landing?.enabled ?? false);
+  const landingUrl = `${window.location.origin}/landing/${board.id}`;
+
+  const copyUrl = () => { navigator.clipboard.writeText(landingUrl); };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] backdrop-blur-[4px]" onClick={onClose}>
+      <div className="bg-card border border-border rounded-[14px] w-[500px] max-h-[85vh] overflow-y-auto p-7 fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-[17px] font-bold text-foreground mb-1"><Icons.globe size={18} /> Landing Público</div>
+        <div className="text-[12px] text-text-muted mb-5">{board.name}</div>
+
+        <div className="p-4 bg-surface-2 border border-border rounded-lg mb-4">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => setEnabled(p => !p)}
+              className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${enabled ? 'bg-success' : 'bg-surface-4 border border-border'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${enabled ? 'left-[22px]' : 'left-0.5'}`} />
+            </div>
+            <div>
+              <div className="text-[13px] font-semibold text-foreground">{enabled ? 'Landing habilitado' : 'Landing deshabilitado'}</div>
+              <div className="text-[11px] text-text-muted">Permite que personas externas creen casos sin usuario</div>
+            </div>
+          </label>
+        </div>
+
+        {enabled && (
+          <div className="p-4 bg-success/5 border border-success/20 rounded-lg mb-4">
+            <div className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">URL del Landing</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[12px] bg-surface-3 border border-border px-3 py-2 rounded text-foreground font-mono break-all">{landingUrl}</code>
+              <button onClick={copyUrl} className="shrink-0 flex items-center gap-1 px-2.5 py-2 bg-surface-3 border border-border text-foreground rounded text-[11px] font-semibold cursor-pointer hover:bg-surface-4" title="Copiar URL">
+                <Icons.copy size={12} />
+              </button>
+              <a href={landingUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 flex items-center gap-1 px-2.5 py-2 bg-surface-3 border border-border text-foreground rounded text-[11px] font-semibold hover:bg-surface-4" title="Abrir en nueva pestaña">
+                <Icons.externalLink size={12} />
+              </a>
+            </div>
+            <div className="mt-3 text-[11px] text-text-muted space-y-1">
+              <div>• El responsable se asignará automáticamente al primer administrador del tablero</div>
+              <div>• Se exigirá adjuntar al menos un archivo</div>
+              <div>• Los campos con fórmula se calculan automáticamente</div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end mt-6">
+          <button className="px-5 py-2.5 bg-surface-3 text-foreground border border-border rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-surface-4" onClick={onClose}>Cancelar</button>
+          <button className="px-5 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-semibold cursor-pointer hover:brightness-110" onClick={() => onSave({ enabled })}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ===== SAP Manager ===== */
+interface SapManagerProps {
+  board: Board;
+  onSave: (config: SapConfig | undefined) => void;
+  onClose: () => void;
+}
+
+export const SapManager: React.FC<SapManagerProps> = ({ board, onSave, onClose }) => {
+  const existing = board.sap;
+  const [enabled, setEnabled] = useState(!!existing);
+  const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? '');
+  const [companyDB, setCompanyDB] = useState(existing?.companyDB ?? '');
+  const [username, setUsername] = useState(existing?.username ?? '');
+  const [password, setPassword] = useState(existing?.password ?? '');
+  const [queryName, setQueryName] = useState(existing?.queryName ?? '');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = () => {
+    if (enabled) {
+      if (!baseUrl.trim() || !companyDB.trim() || !username.trim() || !password.trim() || !queryName.trim()) {
+        setError('Todos los campos son requeridos para habilitar SAP.');
+        return;
+      }
+      onSave({ baseUrl: baseUrl.trim(), companyDB: companyDB.trim(), username: username.trim(), password: password.trim(), queryName: queryName.trim() });
+    } else {
+      onSave(undefined);
+    }
+  };
+
+  const inp = 'w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary placeholder:text-text-muted';
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] backdrop-blur-[4px]" onClick={onClose}>
+      <div className="bg-card border border-border rounded-[14px] w-[540px] max-h-[90vh] overflow-y-auto p-7 fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-[17px] font-bold text-foreground mb-1"><Icons.sap size={18} /> Integración SAP B1</div>
+        <div className="text-[12px] text-text-muted mb-5">{board.name}</div>
+
+        {error && <div className="p-3 rounded-lg text-[13px] mb-4 bg-destructive/10 text-destructive">{error}</div>}
+
+        {/* Toggle */}
+        <div className="p-4 bg-surface-2 border border-border rounded-lg mb-4">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => setEnabled(p => !p)}
+              className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${enabled ? 'bg-primary' : 'bg-surface-4 border border-border'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${enabled ? 'left-[22px]' : 'left-0.5'}`} />
+            </div>
+            <div>
+              <div className="text-[13px] font-semibold text-foreground">{enabled ? 'Integración SAP habilitada' : 'Integración SAP deshabilitada'}</div>
+              <div className="text-[11px] text-text-muted">Permite buscar facturas/pedidos en SAP Business One desde el landing</div>
+            </div>
+          </label>
+        </div>
+
+        {enabled && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">URL de Service Layer</label>
+              <input className={inp} value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://sap-server:50000" />
+              <div className="text-[10px] text-text-muted mt-1">Sin barra final. Incluye el puerto (50000 por defecto).</div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Base de datos (CompanyDB)</label>
+              <input className={inp} value={companyDB} onChange={e => setCompanyDB(e.target.value)} placeholder="ALLERS_PROD" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Usuario SAP SL</label>
+                <input className={inp} value={username} onChange={e => setUsername(e.target.value)} placeholder="manager" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Contraseña</label>
+                <div className="relative">
+                  <input className={inp + ' pr-10'} type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••" />
+                  <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted cursor-pointer p-1"
+                    onClick={() => setShowPw(p => !p)}>{showPw ? <Icons.eyeOff size={15} /> : <Icons.eye size={15} />}</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Nombre de la xSQL Query</label>
+              <input className={inp + ' font-mono'} value={queryName} onChange={e => setQueryName(e.target.value)} placeholder="GetOrderDetails" />
+              <div className="text-[10px] text-text-muted mt-1">
+                Query predefinida en SAP SL que recibe el número de documento y devuelve: DocNum, ItemCount, TotalValue, DocCurrency, SalesPersonCode, SalesPersonName.
+              </div>
+            </div>
+            <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-[11px] text-text-muted space-y-1">
+              <div className="font-semibold text-text-secondary mb-1">Configuración de usuario:</div>
+              <div>• En cada usuario del sistema asigna su <strong>ID SAP</strong> (SlpCode) para correlacionar con el vendedor SAP.</div>
+              <div>• El campo ID SAP se encuentra en el formulario de Editar Usuario.</div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end mt-6">
+          <button className="px-5 py-2.5 bg-surface-3 text-foreground border border-border rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-surface-4" onClick={onClose}>Cancelar</button>
+          <button className="px-5 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-semibold cursor-pointer hover:brightness-110" onClick={handleSave}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ===== Board Management Grid ===== */
 interface BoardManagementProps {
   boards: Board[];
   cards: Card[];
   users: User[];
+  me: User;
   onCreate: () => void;
   onEdit: (b: Board) => void;
   onDelete: (b: Board) => void;
   onColumns: (b: Board) => void;
   onCustomFields: (b: Board) => void;
+  onLanding: (b: Board) => void;
+  onSap: (b: Board) => void;
 }
 
 import type { User } from '@/types';
 
-const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users, onCreate, onEdit, onDelete, onColumns, onCustomFields }) => (
+const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users, me, onCreate, onEdit, onDelete, onColumns, onCustomFields, onLanding, onSap }) => (
   <div className="fade-in">
     <div className="flex justify-end mb-4">
       <button className="flex items-center gap-1.5 px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110"
@@ -243,6 +438,7 @@ const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users,
       {boards.map(b => {
         const uc = users.filter(u => u.isAdminTotal || u.boardRoles[b.id]).length;
         const cc = cards.filter(c => c.boardId === b.id && !c.deleted && !c.closed).length;
+        const landingOn = b.landing?.enabled;
         return (
           <div key={b.id} className="bg-card border border-border rounded-[10px] p-5 hover:border-border-strong transition-colors">
             <div className="flex items-start justify-between mb-3.5">
@@ -251,6 +447,12 @@ const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users,
                 <div className="text-[11px] text-primary font-semibold mt-0.5">{b.prefix}</div>
               </div>
               <div className="flex gap-1">
+                {me.isAdminTotal && (
+                  <button className={`px-2 py-1 border rounded text-[11px] font-semibold cursor-pointer ${b.sap ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20' : 'bg-surface-3 text-text-secondary border-border hover:bg-surface-4'}`}
+                    title="Integración SAP B1" onClick={() => onSap(b)}><Icons.sap size={12} /></button>
+                )}
+                <button className={`px-2 py-1 border rounded text-[11px] font-semibold cursor-pointer ${landingOn ? 'bg-success/10 text-success border-success/30 hover:bg-success/20' : 'bg-surface-3 text-text-secondary border-border hover:bg-surface-4'}`}
+                  title="Landing Público" onClick={() => onLanding(b)}><Icons.globe size={12} /></button>
                 <button className="px-2 py-1 bg-surface-3 text-foreground border border-border rounded text-[11px] font-semibold cursor-pointer hover:bg-surface-4" title="Campos" onClick={() => onCustomFields(b)}><Icons.fields size={12} /></button>
                 <button className="px-2 py-1 bg-surface-3 text-foreground border border-border rounded text-[11px] font-semibold cursor-pointer hover:bg-surface-4" title="Carriles" onClick={() => onColumns(b)}><Icons.columns size={12} /></button>
                 <button className="px-2 py-1 bg-surface-3 text-foreground border border-border rounded text-[11px] font-semibold cursor-pointer hover:bg-surface-4" onClick={() => onEdit(b)}><Icons.edit size={12} /></button>
@@ -269,6 +471,8 @@ const BoardManagement: React.FC<BoardManagementProps> = ({ boards, cards, users,
               <span className="text-[11px] text-text-muted"><strong className="text-text-secondary">{b.columns.length}</strong> carriles</span>
               <span className="text-[11px] text-text-muted"><strong className="text-text-secondary">{cc}</strong> abiertos</span>
               <span className="text-[11px] text-text-muted"><strong className="text-text-secondary">{uc}</strong> usuarios</span>
+              {landingOn && <span className="text-[11px] text-success flex items-center gap-1"><Icons.globe size={10} /> Landing</span>}
+              {me.isAdminTotal && b.sap && <span className="text-[11px] text-primary flex items-center gap-1"><Icons.sap size={10} /> SAP</span>}
             </div>
           </div>
         );
