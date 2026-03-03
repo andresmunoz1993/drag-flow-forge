@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Board, Card, CustomField, FileAttachment, User, SapOrderResult } from '@/types';
 import {
-  loadData, saveData, generateId,
-  readFileAsDataUrl, MAX_FILE_SIZE, formatSize, getFileExt,
-  applyFormulaFields, defaultBoards, defaultUsers, defaultCards,
+  generateId, readFileAsDataUrl, MAX_FILE_SIZE, formatSize, getFileExt,
+  applyFormulaFields,
 } from '@/lib/storage';
+import { apiGetBoards, apiGetUsers, apiCreateCard } from '@/lib/api';
 import { searchSapDocument, SapError } from '@/lib/sapService';
 
 /* ─── helpers ─── */
@@ -80,15 +80,29 @@ const SapDialog: React.FC<SapDialogProps> = ({ result, onConfirm, onReject }) =>
 const LandingPage: React.FC = () => {
   const { boardId } = useParams<{ boardId: string }>();
 
-  const boards = useMemo(() => loadData<Board[]>('boards', defaultBoards), []);
-  const users = useMemo(() => loadData<User[]>('users', defaultUsers), []);
+  // Cargar datos desde API (async)
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([apiGetBoards(), apiGetUsers()])
+      .then(([b, u]) => { setBoards(b); setAllUsers(u); })
+      .catch(() => {})
+      .finally(() => setDataLoading(false));
+  }, []);
 
   const board = boards.find(b => b.id === boardId);
 
   // First board admin (not total admin)
-  const [defaultAssignee, setDefaultAssignee] = useState<User | null>(
-    () => users.find(u => u.active && !u.isAdminTotal && u.boardRoles[boardId || ''] === 'admin_tablero') ?? null,
-  );
+  const [defaultAssignee, setDefaultAssignee] = useState<User | null>(null);
+
+  // Asignar default assignee cuando se cargan datos
+  useEffect(() => {
+    if (!allUsers.length || !boardId) return;
+    const assignee = allUsers.find(u => u.active && !u.isAdminTotal && u.boardRoles?.[boardId] === 'admin_tablero') ?? null;
+    setDefaultAssignee(assignee);
+  }, [allUsers, boardId]);
 
   // Visible custom fields (exclude formula fields)
   const visibleFields = useMemo(
@@ -99,15 +113,20 @@ const LandingPage: React.FC = () => {
   // Form state
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [customData, setCD] = useState<Record<string, string>>(() => {
-    const d: Record<string, string> = {};
-    (board?.customFields || []).forEach(cf => { d[cf.id] = ''; });
-    return d;
-  });
+  const [customData, setCD] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [fileError, setFileError] = useState('');
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Inicializar customData cuando board carga
+  useEffect(() => {
+    if (!board) return;
+    const d: Record<string, string> = {};
+    (board.customFields || []).forEach(cf => { d[cf.id] = ''; });
+    setCD(d);
+  }, [board]);
 
   // SAP state
   const hasSap = !!(board?.sap);
@@ -117,6 +136,15 @@ const LandingPage: React.FC = () => {
   const [sapConfirmed, setSapConfirmed] = useState(false);
   const [sapMandatory, setSapMandatory] = useState(true);
   const [sapError, setSapError] = useState('');
+
+  /* ─── loading ─── */
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-6">
+        <div className="text-gray-400 text-[14px]">Cargando...</div>
+      </div>
+    );
+  }
 
   /* ─── not available ─── */
   if (!board || !board.landing?.enabled) {
@@ -171,8 +199,7 @@ const LandingPage: React.FC = () => {
 
   const handleSapConfirm = () => {
     if (!sapResult) return;
-    // Find user with matching idSAP
-    const matched = users.find(u => u.active && u.idSAP && u.idSAP === sapResult.salesPersonCode);
+    const matched = allUsers.find(u => u.active && u.idSAP && u.idSAP === sapResult.salesPersonCode);
     if (matched) setDefaultAssignee(matched);
     setSapConfirmed(true);
     setSapResult(null);
@@ -189,14 +216,14 @@ const LandingPage: React.FC = () => {
     e.target.value = '';
     setFileError('');
     for (const file of list) {
-      if (file.size > MAX_FILE_SIZE) { setFileError(`"${file.name}" supera 2MB`); continue; }
+      if (file.size > MAX_FILE_SIZE) { setFileError(`"${file.name}" supera 10MB`); continue; }
       const data = await readFileAsDataUrl(file);
       const fa: FileAttachment = { id: generateId(), name: file.name, size: file.size, type: file.type, data };
       setFiles(p => [...p, fa]);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!title.trim()) { setError('El título es obligatorio.'); return; }
@@ -204,51 +231,45 @@ const LandingPage: React.FC = () => {
     if (!defaultAssignee) { setError('No hay un administrador configurado para este tablero.'); return; }
     if (files.length === 0) { setError('Debes adjuntar al menos un archivo.'); return; }
 
-    const storedCards = loadData<Card[]>('cards', defaultCards);
-    const storedNum = loadData<number | null>('nextGlobalNum', () => null);
-    const nextNum = storedNum !== null ? storedNum : (() => {
-      const nums = storedCards.map(c => parseInt(c.code.split('-')[1])).filter(n => !isNaN(n));
-      return nums.length > 0 ? Math.max(...nums) + 1 : 101;
-    })();
-
     const sortedCols = [...board.columns].sort((a, b) => a.order - b.order);
     const firstCol = sortedCols[0];
     if (!firstCol) { setError('El tablero no tiene carriles configurados.'); return; }
 
-    const createdAt = new Date().toISOString();
-    const code = board.prefix + '-' + nextNum;
+    setSubmitting(true);
+    try {
+      const createdAt = new Date().toISOString();
+      const finalCustomData = applyFormulaFields(board.customFields || [], customData, createdAt);
 
-    const finalCustomData = applyFormulaFields(board.customFields || [], customData, createdAt);
+      const newCard = await apiCreateCard({
+        boardId: board.id,
+        columnId: firstCol.id,
+        title: title.trim(),
+        description: desc,
+        priority: '' as Card['priority'],
+        type: '',
+        assigneeId: defaultAssignee.id,
+        reporterId: 'external',
+        reporterName: 'Portal Externo',
+        createdAt,
+        modifiedBy: null,
+        modifiedAt: null,
+        deleted: false,
+        closed: false,
+        closedAt: null,
+        closedBy: null,
+        files,
+        comments: [],
+        customData: finalCustomData,
+        assigneeHistory: [{ id: generateId(), assigneeId: defaultAssignee.id, assigneeName: defaultAssignee.fullName, assignedAt: createdAt }],
+        moveHistory: [],
+      });
 
-    const newCard: Card = {
-      id: generateId(),
-      boardId: board.id,
-      columnId: firstCol.id,
-      code,
-      title: title.trim(),
-      description: desc,
-      priority: '' as Card['priority'],
-      type: '',
-      assigneeId: defaultAssignee.id,
-      reporterId: 'external',
-      reporterName: 'Portal Externo',
-      createdAt,
-      modifiedBy: null,
-      modifiedAt: null,
-      deleted: false,
-      closed: false,
-      closedAt: null,
-      closedBy: null,
-      files,
-      comments: [],
-      customData: finalCustomData,
-      assigneeHistory: [{ id: generateId(), assigneeId: defaultAssignee.id, assigneeName: defaultAssignee.fullName, assignedAt: createdAt }],
-      moveHistory: [],
-    };
-
-    saveData('cards', [...storedCards, newCard]);
-    saveData('nextGlobalNum', nextNum + 1);
-    setSubmitted(code);
+      setSubmitted(newCard.code);
+    } catch (err: any) {
+      setError(err.message ?? 'Error al enviar solicitud.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderField = (cf: CustomField) => {
@@ -415,8 +436,9 @@ const LandingPage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-blue-600 text-white rounded-xl text-[14px] font-bold cursor-pointer hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm">
-              Enviar Solicitud
+              disabled={submitting}
+              className="w-full py-3.5 bg-blue-600 text-white rounded-xl text-[14px] font-bold cursor-pointer hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">
+              {submitting ? 'Enviando...' : 'Enviar Solicitud'}
             </button>
           </form>
         </div>

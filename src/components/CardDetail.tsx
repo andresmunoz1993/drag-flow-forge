@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Board, Card, User, Comment as CommentType, FileAttachment, CustomField } from '@/types';
 import { Icons } from './Icons';
 import FileUpload from './FileUpload';
+import DocumentViewer from './DocumentViewer';
 import { formatDate, getInitials, generateId } from '@/lib/storage';
 
 interface CardDetailProps {
@@ -26,7 +27,48 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
   const [editCommentId, setEditCommentId] = useState<string | null>(null);
   const [editCommentText, setEditCommentText] = useState('');
   const [editCommentFiles, setEditCommentFiles] = useState<FileAttachment[]>([]);
-  const [customData, setCD] = useState<Record<string, string>>({ ...(card.customData || {}) });
+  const [customData, setCD]   = useState<Record<string, string>>({ ...(card.customData || {}) });
+  const [clientRef, setClientRef] = useState(card.clientRef || '');
+  const [zipping, setZipping] = useState(false);
+
+  const totalFiles = (card.files || []).length + (card.comments || []).reduce((s, c) => s + (c.files?.length || 0), 0);
+
+  const downloadZip = async () => {
+    if (zipping) return;
+    setZipping(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      const cardFiles = card.files || [];
+      if (cardFiles.length > 0) {
+        const folder = zip.folder('Archivos del caso')!;
+        cardFiles.forEach((f, i) => {
+          folder.file(`${i + 1}_${f.name}`, f.data.split(',')[1], { base64: true });
+        });
+      }
+
+      const commentFilesAll = (card.comments || []).flatMap(c => c.files || []);
+      if (commentFilesAll.length > 0) {
+        const folder = zip.folder('Archivos de comentarios')!;
+        commentFilesAll.forEach((f, i) => {
+          folder.file(`${i + 1}_${f.name}`, f.data.split(',')[1], { base64: true });
+        });
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${card.code}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setZipping(false);
+    }
+  };
 
   const col = board?.columns.find(c => c.id === card.columnId);
   const assignee = users.find(u => u.id === card.assigneeId);
@@ -42,7 +84,7 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
   const saveEdit = () => {
     const allFiles = [...(card.files || []), ...newFiles];
-    const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData };
+    const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData, clientRef: clientRef || undefined };
     if (assigneeId !== card.assigneeId) {
       const a = users.find(u => u.id === assigneeId);
       upd.assigneeHistory = [...(card.assigneeHistory || []), { id: generateId(), assigneeId, assigneeName: a?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }];
@@ -146,7 +188,19 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
             {/* Files */}
             <div className="py-3.5 border-b border-border">
-              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Archivos ({(card.files || []).length})</div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">Archivos ({(card.files || []).length})</div>
+                {totalFiles >= 2 && (
+                  <button
+                    className="flex items-center gap-1 px-2.5 py-1 bg-surface-3 border border-border rounded text-[11px] font-semibold text-foreground cursor-pointer hover:bg-surface-4 disabled:opacity-50"
+                    onClick={downloadZip}
+                    disabled={zipping}
+                  >
+                    <Icons.dl size={11} />
+                    {zipping ? 'Generando...' : `Descargar todo (${totalFiles}) como ZIP`}
+                  </button>
+                )}
+              </div>
               <FileUpload files={card.files || []} onAdd={editing ? f => setNewFiles(p => [...p, f]) : undefined} onRemove={editing ? fid => { const uf = (card.files || []).filter(f => f.id !== fid); onUpdate(card, { files: uf }); setCard(c => ({ ...c, files: uf })); } : undefined} disabled={!editing} />
               {editing && newFiles.length > 0 && <><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mt-2.5 mb-1">Nuevos</div><FileUpload files={newFiles} onRemove={id => setNewFiles(p => p.filter(x => x.id !== id))} /></>}
             </div>
@@ -170,6 +224,16 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
                       onClick={() => handleMove(c.id)}>{isLast && <Icons.check size={10} />}{c.name}</button>;
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Documentos sincronizados SFTP */}
+            {card.clientRef && (
+              <div className="py-3.5 border-b border-border">
+                <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-2">
+                  Documentos — {card.clientRef}
+                </div>
+                <DocumentViewer cardId={card.id} />
               </div>
             )}
 
@@ -240,6 +304,18 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
             <div className="mt-2"><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Creado</div><div className="text-[12px] text-foreground">{formatDate(card.createdAt)}</div></div>
             {card.modifiedBy && <div className="border-t border-border pt-3 mt-3"><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Modificado</div><div className="text-[13px] text-foreground">{card.modifiedBy}<br /><span className="text-[11px] text-text-muted">{formatDate(card.modifiedAt)}</span></div></div>}
             {card.closed && <div className="border-t border-border pt-3 mt-3"><div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Cerrado</div><div className="text-[13px] text-foreground">{card.closedBy}<br /><span className="text-[11px] text-text-muted">{formatDate(card.closedAt)}</span></div></div>}
+            <div className="border-t border-border pt-3 mt-3">
+              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Ref. Cliente</div>
+              {editing
+                ? <input
+                    className="w-full py-1.5 px-2.5 bg-surface-2 border border-border rounded-lg text-foreground text-[12px] outline-none focus:border-primary mt-1 font-mono"
+                    value={clientRef}
+                    onChange={e => setClientRef(e.target.value.toUpperCase())}
+                    placeholder="Ej: CN13718"
+                  />
+                : <div className="text-[13px] font-mono text-foreground">{card.clientRef || <span className="text-text-muted italic text-[12px]">Sin referencia</span>}</div>
+              }
+            </div>
             <div className="border-t border-border pt-3 mt-3">
               <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Historial de Responsables</div>
               <div className="mt-1.5 text-[11px] text-text-secondary leading-snug">

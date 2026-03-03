@@ -17,7 +17,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ files, onAdd, onRemove, disable
     if (!onAdd) return;
     const fl = Array.from(e.target.files || []);
     for (const f of fl) {
-      if (f.size > MAX_FILE_SIZE) { alert(`"${f.name}" >2MB`); continue; }
+      if (f.size > MAX_FILE_SIZE) { alert(`"${f.name}" >10MB`); continue; }
       const data = await readFileAsDataUrl(f);
       onAdd({ id: generateId(), name: f.name, size: f.size, type: f.type, data });
     }

@@ -20,6 +20,33 @@ export interface SapConfig {
   queryName: string;  // Nombre de la xSQL query en Service Layer
 }
 
+/** Configuración del módulo de importación automática desde SP */
+export interface SpAutoImportConfig {
+  enabled: boolean;
+  /** Nombre del stored procedure a ejecutar en el backend */
+  spName: string;
+  /** ID del usuario al que se asignarán los casos importados */
+  defaultAssigneeId: string;
+  /** ID del carril destino (si no se especifica, se usa el primero) */
+  targetColumnId?: string;
+}
+
+/**
+ * Registro devuelto por el SP vía backend.
+ * El frontend usa `externalId` para evitar importaciones duplicadas.
+ */
+export interface SpCaseRecord {
+  /** ID único del registro en el sistema origen */
+  externalId: string;
+  title: string;
+  description?: string;
+  /**
+   * Datos para campos personalizados del tablero.
+   * Clave = nombre del campo personalizado, valor = dato a guardar.
+   */
+  customData?: Record<string, string>;
+}
+
 export interface SapOrderResult {
   docNum: string;
   itemCount: number;
@@ -59,6 +86,7 @@ export interface Board {
   customFields: CustomField[];
   landing?: BoardLanding;
   sap?: SapConfig;
+  spAutoImport?: SpAutoImportConfig;
 }
 
 export interface FileAttachment {
@@ -118,6 +146,21 @@ export interface Card {
   customData: Record<string, string>;
   assigneeHistory: AssigneeHistoryEntry[];
   moveHistory: MoveHistoryEntry[];
+  /** ID externo del SP de origen. Presente solo en casos creados via SP auto-import. */
+  spExternalId?: string;
+  /** Código externo del cliente para vincular documentos sincronizados vía SFTP (ej: CN13718). */
+  clientRef?: string;
+}
+
+/** Documento sincronizado desde SFTP, vinculado a un caso por clientRef. */
+export interface ClientDocument {
+  id: number;
+  cardId: string | null;
+  clientId: string;
+  nombreArchivo: string;
+  tipo: string;
+  rutaLocal: string;
+  fechaSincronizacion: string;
 }
 
 export type RoleKey = 'admin_tablero' | 'ejecutor' | 'consulta';

@@ -13,9 +13,13 @@ interface KanbanProps {
   onCardClick: (c: Card) => void;
   onMoveCard: (cardId: string, colId: string) => void;
   onCloseCase: (data: { card: Card; colId: string }) => void;
+  /** Llamado cuando el usuario pulsa "Importar desde SP". Solo se pasa si el SP está habilitado. */
+  onSpImport?: (b: Board) => void;
+  /** true mientras el import del SP está en progreso */
+  isSpImporting?: boolean;
 }
 
-const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onCreate, onCardClick, onMoveCard, onCloseCase }) => {
+const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onCreate, onCardClick, onMoveCard, onCloseCase, onSpImport, isSpImporting }) => {
   const sortedCols = [...board.columns].sort((a, b) => a.order - b.order);
   const lastCol = sortedCols[sortedCols.length - 1];
   const [filterAssigned, setFA] = useState(false);
@@ -50,10 +54,24 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
     <div className="fade-in">
       <div className="mb-3.5 flex items-center gap-3 flex-wrap">
         {canCreate && <button className="flex items-center gap-1.5 px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110" onClick={() => onCreate(board)}><Icons.plus size={14} /> Crear Caso</button>}
+        {onSpImport && board.spAutoImport?.enabled && (
+          <button
+            className={`flex items-center gap-1.5 px-3 py-[7px] rounded-md text-[12px] font-semibold cursor-pointer border transition-colors
+              ${isSpImporting
+                ? 'bg-warning/10 text-warning border-warning/30 cursor-not-allowed opacity-70'
+                : 'bg-warning/10 text-warning border-warning/30 hover:bg-warning/20'}`}
+            onClick={() => !isSpImporting && onSpImport(board)}
+            disabled={isSpImporting}
+            title={isSpImporting ? 'Importando...' : 'Importar casos desde SP'}>
+            {isSpImporting
+              ? <><Icons.spinner size={13} className="animate-spin" /> Importando...</>
+              : <><Icons.sync size={13} /> Importar SP</>}
+          </button>
+        )}
         <div className="flex gap-1.5">
-          <button className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors ${filterAssigned ? 'bg-primary text-primary-foreground' : 'bg-surface-3 text-foreground border border-border hover:bg-surface-4'}`}
+          <button className={`px-2.5 py-1 rounded text-[12px] font-semibold cursor-pointer transition-colors ${filterAssigned ? 'bg-primary text-primary-foreground' : 'bg-surface-3 text-foreground border border-border hover:bg-surface-4'}`}
             onClick={() => setFA(!filterAssigned)}>Asignados a mi</button>
-          <button className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors ${filterReported ? 'bg-primary text-primary-foreground' : 'bg-surface-3 text-foreground border border-border hover:bg-surface-4'}`}
+          <button className={`px-2.5 py-1 rounded text-[12px] font-semibold cursor-pointer transition-colors ${filterReported ? 'bg-primary text-primary-foreground' : 'bg-surface-3 text-foreground border border-border hover:bg-surface-4'}`}
             onClick={() => setFR(!filterReported)}>Creados por mi</button>
         </div>
         <div className="flex-1" />
@@ -75,7 +93,7 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
               <div className="py-3 px-3.5 border-b border-border flex items-center justify-between shrink-0">
                 <span className="text-[12px] font-bold text-foreground uppercase tracking-tight">
                   {col.name}
-                  {isLast && <span className="ml-1.5 text-[9px] text-success">✓ CIERRE</span>}
+                  {isLast && <span className="ml-1.5 text-[11px] text-success">✓ CIERRE</span>}
                 </span>
                 <span className="text-[11px] text-text-muted bg-surface-3 px-2 py-0.5 rounded-[10px] font-semibold">{colCards.length}</span>
               </div>
@@ -87,27 +105,30 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
                     onDragStart={e => { if (!canMove) return; setDragId(c.id); e.dataTransfer.effectAllowed = 'move'; }}
                     onDragEnd={() => setDragId(null)}
                     onClick={() => onCardClick(c)}>
-                    <div className="text-[11px] text-primary font-semibold mb-1">{c.code}</div>
-                    <div className="text-[13px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-[12px] text-primary font-semibold">{c.code}</span>
+                      {c.spExternalId && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">SP</span>}
+                    </div>
+                    <div className="text-[15px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {c.priority && (
-                        <span className={`text-[10px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+                        <span className={`text-[11px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
                           {c.priority.charAt(0).toUpperCase() + c.priority.slice(1)}
                         </span>
                       )}
-                      {c.type && <span className="text-[10px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
+                      {c.type && <span className="text-[11px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
                       <span className="ml-auto text-[10px] text-text-muted flex items-center gap-1">
                         <Icons.msg size={10} />{(c.comments || []).length > 0 && <span>{c.comments.length}</span>}
                         {(c.files || []).length > 0 && <span className="ml-0.5 flex items-center gap-0.5"><Icons.clip size={10} />{c.files.length}</span>}
                       </span>
                       {c.assigneeId && (
-                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">
+                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold">
                           {getInitials(users.find(u => u.id === c.assigneeId)?.fullName || '')}
                         </span>
                       )}
                     </div>
                     {isLast && canMove && (
-                      <button className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[10px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
+                      <button className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[12px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
                         onClick={e => { e.stopPropagation(); onCloseCase({ card: c, colId: col.id }); }}>
                         <Icons.check size={10} /> Cerrar Caso
                       </button>

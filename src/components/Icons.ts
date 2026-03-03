@@ -3,7 +3,7 @@ import {
   X, Search, ChevronUp, ChevronDown, Settings, Columns, List,
   Paperclip, Download, MessageSquare, Move, Check, Lock, SlidersHorizontal,
   Globe, Copy, ExternalLink, Calculator, Database, Loader2, Package,
-  AlertCircle, ShieldCheck,
+  AlertCircle, ShieldCheck, RefreshCw,
 } from 'lucide-react';
 
 export const Icons = {
@@ -39,4 +39,5 @@ export const Icons = {
   package: Package,
   alert: AlertCircle,
   shield: ShieldCheck,
+  sync: RefreshCw,
 };

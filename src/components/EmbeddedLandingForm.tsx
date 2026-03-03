@@ -14,7 +14,7 @@ interface EmbeddedLandingFormProps {
     columnId: string;
     files: FileAttachment[];
     customData: Record<string, string>;
-  }) => string; // returns the created code
+  }) => Promise<string>; // returns the created code
 }
 
 const FileRow: React.FC<{ f: FileAttachment; onRemove?: () => void }> = ({ f, onRemove }) => (
@@ -132,7 +132,7 @@ const EmbeddedLandingForm: React.FC<EmbeddedLandingFormProps> = ({ board, users,
     e.target.value = '';
     setFileError('');
     for (const file of list) {
-      if (file.size > MAX_FILE_SIZE) { setFileError(`"${file.name}" supera 2MB`); continue; }
+      if (file.size > MAX_FILE_SIZE) { setFileError(`"${file.name}" supera 10MB`); continue; }
       const data = await readFileAsDataUrl(file);
       setFiles(p => [...p, { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: file.name, size: file.size, type: file.type, data }]);
     }
@@ -166,7 +166,9 @@ const EmbeddedLandingForm: React.FC<EmbeddedLandingFormProps> = ({ board, users,
     setSapResult(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!title.trim()) { setError('El título es obligatorio.'); return; }
@@ -175,15 +177,22 @@ const EmbeddedLandingForm: React.FC<EmbeddedLandingFormProps> = ({ board, users,
     if (!firstCol) { setError('El tablero no tiene carriles configurados.'); return; }
     if (files.length === 0) { setError('Debes adjuntar al menos un archivo.'); return; }
 
-    const code = onCreateCard({
-      title: title.trim(),
-      description: desc,
-      assigneeId: effectiveAssignee.id,
-      columnId: firstCol.id,
-      files,
-      customData,
-    });
-    setSubmitted(code);
+    setSubmitting(true);
+    try {
+      const code = await onCreateCard({
+        title: title.trim(),
+        description: desc,
+        assigneeId: effectiveAssignee.id,
+        columnId: firstCol.id,
+        files,
+        customData,
+      });
+      setSubmitted(code);
+    } catch (err: any) {
+      setError(err.message ?? 'Error al crear la solicitud. Intenta de nuevo.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const reset = () => {
@@ -379,8 +388,10 @@ const EmbeddedLandingForm: React.FC<EmbeddedLandingFormProps> = ({ board, users,
           </div>
           <button
             type="submit"
-            className="flex items-center gap-2 px-6 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-bold cursor-pointer hover:brightness-110">
-            <Icons.check size={14} /> Enviar Solicitud
+            disabled={submitting}
+            className="flex items-center gap-2 px-6 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-bold cursor-pointer hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed">
+            {submitting ? <Icons.spinner size={14} className="animate-spin" /> : <Icons.check size={14} />}
+            {submitting ? 'Enviando...' : 'Enviar Solicitud'}
           </button>
         </div>
       </form>

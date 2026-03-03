@@ -1,25 +1,32 @@
 import React, { useState } from 'react';
 import type { User } from '@/types';
 import { Icons } from './Icons';
+import { apiLogin, setAuthToken } from '@/lib/api';
 
 interface LoginProps {
   onLogin: (user: User) => void;
-  users: User[];
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
+const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const user = users.find(u => u.username === username.trim() && u.password === password);
-    if (!user) { setError('Credenciales incorrectas'); return; }
-    if (!user.active) { setError('Usuario desactivado'); return; }
-    onLogin(user);
+    setLoading(true);
+    try {
+      const user = await apiLogin(username.trim(), password);
+      if (user.token) setAuthToken(user.token);
+      onLogin(user);
+    } catch (err: any) {
+      setError(err.message ?? 'Credenciales incorrectas');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -42,6 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
             <input
               className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10 placeholder:text-text-muted"
               value={username} onChange={e => setUsername(e.target.value)} autoFocus placeholder="Usuario"
+              disabled={loading}
             />
           </div>
           <div className="mb-4">
@@ -50,6 +58,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
               <input
                 className="w-full py-[11px] px-3.5 pr-10 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10 placeholder:text-text-muted"
                 type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Contraseña"
+                disabled={loading}
               />
               <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted cursor-pointer p-1"
                 onClick={() => setShowPw(!showPw)}>
@@ -57,11 +66,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, users }) => {
               </button>
             </div>
           </div>
-          <button className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-[13px] cursor-pointer hover:brightness-110 transition-all" type="submit">
-            Iniciar Sesión
+          <button
+            className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-[13px] cursor-pointer hover:brightness-110 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            type="submit"
+            disabled={loading}
+          >
+            {loading && <Icons.spinner size={14} className="animate-spin" />}
+            {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
-        <div className="mt-5 text-center text-[11px] text-text-muted">admin / admin123</div>
       </div>
     </div>
   );

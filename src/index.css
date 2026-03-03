@@ -6,6 +6,70 @@
 
 @layer base {
   :root {
+    /* ── Modo Claro (por defecto) ────────────────────────────────── */
+    --background: 220 22% 94%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 228 80% 52%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 16% 92%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 16% 92%;
+    --muted-foreground: 220 11% 46%;
+
+    --accent: 220 14% 89%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 3 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 86%;
+    --input: 220 15% 86%;
+    --ring: 228 80% 52%;
+
+    --radius: 0.5rem;
+
+    /* Surface tokens — jerarquía de profundidad */
+    --surface-0: 220 22% 94%;
+    --surface-1: 0 0% 100%;
+    --surface-2: 220 18% 96%;
+    --surface-3: 220 16% 92%;
+    --surface-4: 220 14% 88%;
+
+    --border-subtle: 220 15% 91%;
+    --border-strong: 220 15% 78%;
+
+    --text-primary: 222 47% 11%;
+    --text-secondary: 220 14% 40%;
+    --text-muted: 220 10% 58%;
+
+    --success: 140 55% 32%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 88% 38%;
+    --warning-foreground: 0 0% 100%;
+    --gold: 47 72% 38%;
+
+    /* Sidebar — fondo navy oscuro (patrón enterprise) */
+    --sidebar-background: 222 48% 12%;
+    --sidebar-foreground: 220 20% 68%;
+    --sidebar-primary: 228 85% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 44% 18%;
+    --sidebar-accent-foreground: 220 25% 88%;
+    --sidebar-border: 222 44% 16%;
+    --sidebar-ring: 228 85% 65%;
+  }
+
+  /* ── Modo Oscuro (guardado para uso futuro) ───────────────────── */
+  .dark {
     --background: 225 22% 7%;
     --foreground: 225 25% 93%;
 
@@ -34,9 +98,6 @@
     --input: 230 17% 18%;
     --ring: 228 91% 63%;
 
-    --radius: 0.5rem;
-
-    /* Allers custom tokens */
     --surface-0: 225 22% 7%;
     --surface-1: 228 20% 10%;
     --surface-2: 226 20% 13%;

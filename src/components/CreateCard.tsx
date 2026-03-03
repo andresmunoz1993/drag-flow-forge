@@ -7,7 +7,7 @@ interface CreateCardProps {
   board: Board;
   users: User[];
   me: User;
-  onSave: (data: { title: string; description: string; assigneeId: string; columnId: string; files: FileAttachment[]; customData: Record<string, string> }) => void;
+  onSave: (data: { title: string; description: string; assigneeId: string; columnId: string; files: FileAttachment[]; customData: Record<string, string>; clientRef?: string }) => void;
   onClose: () => void;
 }
 
@@ -22,6 +22,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
     (board.customFields || []).forEach(f => { d[f.id] = ''; });
     return d;
   });
+  const [clientRef, setClientRef] = useState('');
   const [error, setError] = useState('');
 
   const sortedCols = [...board.columns].sort((a, b) => a.order - b.order);
@@ -33,7 +34,7 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
     if (!title.trim()) { setError('Título requerido'); return; }
     if (!firstCol) { setError('Sin carriles'); return; }
     if (!assigneeId) { setError('Responsable requerido'); return; }
-    onSave({ title: title.trim(), description: desc, assigneeId, columnId: firstCol.id, files, customData });
+    onSave({ title: title.trim(), description: desc, assigneeId, columnId: firstCol.id, files, customData, clientRef: clientRef.trim() || undefined });
   };
 
   const renderField = (cf: CustomField) => {
@@ -77,6 +78,10 @@ const CreateCard: React.FC<CreateCardProps> = ({ board, users, me, onSave, onClo
               {renderField(cf)}
             </div>
           ))}
+          <div className="mb-4">
+            <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Ref. Cliente <span className="text-text-muted normal-case font-normal">(opcional — vincula documentos SFTP)</span></label>
+            <input className="w-full py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary font-mono uppercase" value={clientRef} onChange={e => setClientRef(e.target.value.toUpperCase())} placeholder="Ej: CN13718" />
+          </div>
           <div className="mb-4">
             <label className="block text-[11px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Archivos</label>
             <FileUpload files={files} onAdd={f => setFiles(p => [...p, f])} onRemove={id => setFiles(p => p.filter(x => x.id !== id))} />
