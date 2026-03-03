@@ -171,6 +171,14 @@ router.get('/', async (req: Request, res: Response) => {
 
 // POST /api/cards  — crea card con contador atómico
 router.post('/', async (req: Request, res: Response) => {
+  const { boardId, columnId, title } = req.body;
+  if (!boardId || typeof boardId !== 'string' || boardId.length > 100)
+    return res.status(400).json({ error: 'boardId inválido.' });
+  if (!columnId || typeof columnId !== 'string' || columnId.length > 100)
+    return res.status(400).json({ error: 'columnId inválido.' });
+  if (!title || typeof title !== 'string' || title.trim().length === 0 || title.length > 500)
+    return res.status(400).json({ error: 'title es requerido (máx 500 caracteres).' });
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');

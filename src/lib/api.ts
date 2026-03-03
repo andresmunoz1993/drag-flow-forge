@@ -5,7 +5,9 @@
 
 import type { Board, Card, Column, Comment, CustomField, User } from '@/types';
 
-const BASE = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:3001';
+// En dev, el proxy de Vite redirige /api → localhost:3001 (misma origin, sin CORS).
+// En producción, definir VITE_BACKEND_URL con la URL del servidor backend.
+const BASE = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '';
 
 // ─── Token management ────────────────────────────────────────────────────────
 
@@ -18,16 +20,30 @@ export const getAuthToken = (): string | null => localStorage.getItem('auth_toke
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 500; // duplica en cada intento: 500ms, 1000ms, 1500ms
+
+async function request<T>(method: string, path: string, body?: unknown, attempt = 1): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getAuthToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (networkErr) {
+    // Error de red (servidor caído, sin conexión) — reintentar con backoff
+    if (attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt));
+      return request<T>(method, path, body, attempt + 1);
+    }
+    throw new Error('Sin conexión con el servidor. Verifica tu red.');
+  }
+
   if (!res.ok) {
     // Token expirado o inválido → limpiar sesión y recargar al login
     if (res.status === 401) {

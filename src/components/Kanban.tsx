@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import type { Board, Card, User } from '@/types';
 import { Icons } from './Icons';
 import { getInitials } from '@/lib/storage';
@@ -18,6 +18,59 @@ interface KanbanProps {
   /** true mientras el import del SP está en progreso */
   isSpImporting?: boolean;
 }
+
+// ── KanbanCard: memoizado para evitar re-render de TODAS las tarjetas al mover una ──
+interface KanbanCardProps {
+  card: Card;
+  users: User[];
+  isDragging: boolean;
+  canMove: boolean;
+  isLastCol: boolean;
+  onCardClick: (c: Card) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  onCloseCase: (card: Card) => void;
+}
+
+const KanbanCard = memo(({ card: c, users, isDragging, canMove, isLastCol, onCardClick, onDragStart, onDragEnd, onCloseCase }: KanbanCardProps) => (
+  <div
+    className={`bg-surface-2 border border-border rounded-lg p-3 mb-2 cursor-pointer transition-all select-none hover:border-primary ${isDragging ? 'opacity-50 border-primary' : ''}`}
+    draggable={canMove}
+    onDragStart={e => { if (!canMove) return; onDragStart(c.id); e.dataTransfer.effectAllowed = 'move'; }}
+    onDragEnd={onDragEnd}
+    onClick={() => onCardClick(c)}>
+    <div className="flex items-center gap-1.5 mb-1">
+      <span className="text-[12px] text-primary font-semibold">{c.code}</span>
+      {c.spExternalId && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">SP</span>}
+    </div>
+    <div className="text-[15px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {c.priority && (
+        <span className={`text-[11px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+          {c.priority.charAt(0).toUpperCase() + c.priority.slice(1)}
+        </span>
+      )}
+      {c.type && <span className="text-[11px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
+      <span className="ml-auto text-[10px] text-text-muted flex items-center gap-1">
+        <Icons.msg size={10} />{(c.comments || []).length > 0 && <span>{c.comments.length}</span>}
+        {(c.files || []).length > 0 && <span className="ml-0.5 flex items-center gap-0.5"><Icons.clip size={10} />{c.files.length}</span>}
+      </span>
+      {c.assigneeId && (
+        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold">
+          {getInitials(users.find(u => u.id === c.assigneeId)?.fullName || '')}
+        </span>
+      )}
+    </div>
+    {isLastCol && canMove && (
+      <button
+        className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[12px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
+        onClick={e => { e.stopPropagation(); onCloseCase(c); }}>
+        <Icons.check size={10} /> Cerrar Caso
+      </button>
+    )}
+  </div>
+));
+KanbanCard.displayName = 'KanbanCard';
 
 const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onCreate, onCardClick, onMoveCard, onCloseCase, onSpImport, isSpImporting }) => {
   const sortedCols = [...board.columns].sort((a, b) => a.order - b.order);
@@ -39,6 +92,11 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
 
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
+
+  // useCallback: handlers estables para que KanbanCard no re-renderice por referencia nueva
+  const handleDragStart = useCallback((id: string) => setDragId(id), []);
+  const handleDragEnd   = useCallback(() => setDragId(null), []);
+  const handleCloseCase = useCallback((card: Card) => onCloseCase({ card, colId: card.columnId }), [onCloseCase]);
 
   if (!sortedCols.length) {
     return (
@@ -99,41 +157,18 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
               </div>
               <div className="flex-1 overflow-y-auto p-2 min-h-[60px]">
                 {colCards.map(c => (
-                  <div key={c.id}
-                    className={`bg-surface-2 border border-border rounded-lg p-3 mb-2 cursor-pointer transition-all select-none hover:border-primary ${dragId === c.id ? 'opacity-50 border-primary' : ''}`}
-                    draggable={canMove}
-                    onDragStart={e => { if (!canMove) return; setDragId(c.id); e.dataTransfer.effectAllowed = 'move'; }}
-                    onDragEnd={() => setDragId(null)}
-                    onClick={() => onCardClick(c)}>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="text-[12px] text-primary font-semibold">{c.code}</span>
-                      {c.spExternalId && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">SP</span>}
-                    </div>
-                    <div className="text-[15px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {c.priority && (
-                        <span className={`text-[11px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
-                          {c.priority.charAt(0).toUpperCase() + c.priority.slice(1)}
-                        </span>
-                      )}
-                      {c.type && <span className="text-[11px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
-                      <span className="ml-auto text-[10px] text-text-muted flex items-center gap-1">
-                        <Icons.msg size={10} />{(c.comments || []).length > 0 && <span>{c.comments.length}</span>}
-                        {(c.files || []).length > 0 && <span className="ml-0.5 flex items-center gap-0.5"><Icons.clip size={10} />{c.files.length}</span>}
-                      </span>
-                      {c.assigneeId && (
-                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold">
-                          {getInitials(users.find(u => u.id === c.assigneeId)?.fullName || '')}
-                        </span>
-                      )}
-                    </div>
-                    {isLast && canMove && (
-                      <button className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[12px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
-                        onClick={e => { e.stopPropagation(); onCloseCase({ card: c, colId: col.id }); }}>
-                        <Icons.check size={10} /> Cerrar Caso
-                      </button>
-                    )}
-                  </div>
+                  <KanbanCard
+                    key={c.id}
+                    card={c}
+                    users={users}
+                    isDragging={dragId === c.id}
+                    canMove={canMove}
+                    isLastCol={isLast}
+                    onCardClick={onCardClick}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onCloseCase={handleCloseCase}
+                  />
                 ))}
                 {!colCards.length && <div className="py-6 px-3 text-center text-[12px] text-text-muted italic">Sin casos</div>}
               </div>

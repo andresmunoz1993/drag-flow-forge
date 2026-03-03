@@ -30,6 +30,7 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
   const [customData, setCD]   = useState<Record<string, string>>({ ...(card.customData || {}) });
   const [clientRef, setClientRef] = useState(card.clientRef || '');
   const [zipping, setZipping] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const totalFiles = (card.files || []).length + (card.comments || []).reduce((s, c) => s + (c.files?.length || 0), 0);
 
@@ -82,17 +83,23 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
   const canEditComment = (c: CommentType) => c.authorId === me.id || me.isAdminTotal || me.boardRoles[board?.id || ''] === 'admin_tablero';
 
-  const saveEdit = () => {
-    const allFiles = [...(card.files || []), ...newFiles];
-    const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData, clientRef: clientRef || undefined };
-    if (assigneeId !== card.assigneeId) {
-      const a = users.find(u => u.id === assigneeId);
-      upd.assigneeHistory = [...(card.assigneeHistory || []), { id: generateId(), assigneeId, assigneeName: a?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }];
+  const saveEdit = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const allFiles = [...(card.files || []), ...newFiles];
+      const upd: Partial<Card> = { assigneeId, description: desc, files: allFiles, customData, clientRef: clientRef || undefined };
+      if (assigneeId !== card.assigneeId) {
+        const a = users.find(u => u.id === assigneeId);
+        upd.assigneeHistory = [...(card.assigneeHistory || []), { id: generateId(), assigneeId, assigneeName: a?.fullName || 'Desconocido', assignedAt: new Date().toISOString() }];
+      }
+      await onUpdate(card, upd);
+      setCard(c => ({ ...c, ...upd, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() }));
+      setEditing(false);
+      setNewFiles([]);
+    } finally {
+      setIsSaving(false);
     }
-    onUpdate(card, upd);
-    setCard(c => ({ ...c, ...upd, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() }));
-    setEditing(false);
-    setNewFiles([]);
   };
 
   const addComment = () => {
@@ -209,7 +216,12 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
               <div className="flex gap-2 mt-3">
                 <button className="px-3 py-[7px] bg-surface-3 text-foreground border border-border rounded-md text-[12px] font-semibold cursor-pointer hover:bg-surface-4"
                   onClick={() => { setEditing(false); setAssigneeId(card.assigneeId || ''); setDesc(card.description || ''); setNewFiles([]); setCD({ ...(card.customData || {}) }); }}>Cancelar</button>
-                <button className="px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110" onClick={saveEdit}>Guardar</button>
+                <button
+                  className={`flex items-center gap-1.5 px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed`}
+                  onClick={saveEdit}
+                  disabled={isSaving}>
+                  {isSaving ? <><Icons.spinner size={12} className="animate-spin" /> Guardando...</> : 'Guardar'}
+                </button>
               </div>
             )}
 

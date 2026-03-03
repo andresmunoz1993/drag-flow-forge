@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { requireAuth } from "./middleware/auth";
+import { pool } from "./db/index";
 
 // Rutas existentes
 import emailRouter from "./routes/email.routes";
@@ -48,9 +49,19 @@ app.use("/api/documentos",    requireAuth, documentosRouter);
 app.use("/api/email", requireAuth, emailRouter);
 app.use("/api/sp",    requireAuth, spRouter);
 
-// Root health check
+// Root info
 app.get("/", (_req, res) => {
   res.json({ service: "drag-flow-forge backend", status: "running" });
+});
+
+// Health check con ping a DB — útil para monitoreo y alertas
+app.get("/api/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ ok: true, db: "connected", uptime: Math.floor(process.uptime()) });
+  } catch {
+    res.status(503).json({ ok: false, db: "error" });
+  }
 });
 
 app.listen(PORT, () => {

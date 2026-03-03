@@ -62,9 +62,12 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/users
 router.post('/', async (req: Request, res: Response) => {
   const { username, password, fullName, email, isAdminTotal, active, boardRoles, idSAP } = req.body;
-  if (!username || !password || !fullName) {
-    return res.status(400).json({ error: 'username, password y fullName son requeridos.' });
-  }
+  if (!username || typeof username !== 'string' || username.trim().length < 3 || username.length > 50)
+    return res.status(400).json({ error: 'username requerido (3-50 caracteres).' });
+  if (!password || typeof password !== 'string' || String(password).length < 6)
+    return res.status(400).json({ error: 'password requerido (mínimo 6 caracteres).' });
+  if (!fullName || typeof fullName !== 'string' || fullName.trim().length === 0 || fullName.length > 100)
+    return res.status(400).json({ error: 'fullName requerido (máx 100 caracteres).' });
   try {
     const hashedPassword = await bcrypt.hash(String(password), 10);
     const [newUser] = await db.insert(users).values({
