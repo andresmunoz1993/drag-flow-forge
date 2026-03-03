@@ -11,83 +11,6 @@ Objetivo operativo: **50 usuarios concurrentes, 1 000 transacciones diarias**.
 - **Auth**: JWT 7 días, token en localStorage como `auth_token`
 - **ORM**: Drizzle ORM (`drizzle-orm/node-postgres`)
 
-## Estado actual (al cierre de esta sesión)
-
-### Lo que ya está funcionando y commiteado
-- ✅ Login JWT + auto-logout en 401 + sesión restaurada con `/api/auth/me`
-- ✅ CRUD completo: tableros, columnas, casos, comentarios, campos personalizados, usuarios
-- ✅ Middleware `requireAuth` protege rutas sensibles; rutas públicas para landing pages
-- ✅ Contraseñas nunca retornadas en respuestas de API
-- ✅ CORS con `credentials: true`, JSON body limit 10MB
-- ✅ Contador atómico de casos con `ISOLATION LEVEL SERIALIZABLE`
-- ✅ `GET /api/cards`: 4 queries batch (no N+1)
-- ✅ `GET /api/users`: 2 queries batch (no N+1)
-- ✅ `GET /api/boards`: 3 queries batch (no N+1)
-- ✅ `GET /api/cards` filtra `deleted = false` (soft-delete correcto)
-- ✅ 15 índices de rendimiento en PostgreSQL (board_id+deleted, sp_external_id, client_ref, etc.)
-- ✅ Polling con Page Visibility API (pausa cuando el tab está oculto)
-- ✅ Error Boundary global en `src/components/ErrorBoundary.tsx`
-- ✅ Memory leak en DocumentViewer corregido (revoca objectURL anterior)
-- ✅ Integración SFTP: sync PDFs, vinculación por `client_ref`, visor inline
-- ✅ ZIP download de todos los archivos de un caso
-- ✅ Formulario público por tablero (landing page sin login)
-- ✅ Integración SAP B1 configurable por tablero
-- ✅ Auto-importación desde SharePoint (SQL Server)
-- ✅ Envío de email via Microsoft Graph
-
-### Archivos clave a conocer
-- `src/pages/Index.tsx` — controlador principal (~800 líneas de estado y handlers)
-- `src/lib/api.ts` — cliente HTTP centralizado (todas las llamadas al backend)
-- `backend/src/index.ts` — Express app; aquí se aplica `requireAuth` por ruta
-- `backend/src/middleware/auth.ts` — middleware JWT
-- `backend/src/routes/cards.routes.ts` — queries batch, SERIALIZABLE, soft-delete
-
-## Tareas pendientes (ordenadas por impacto)
-
-### Prioridad ALTA — Siguiente sesión
-1. **React.memo en KanbanCard** (`src/components/Kanban.tsx`)
-   - Actualmente cada drag-drop re-renderiza TODAS las tarjetas del tablero
-   - Envolver el componente de tarjeta con `React.memo` + `useCallback` para handlers
-   - Puede reducir renders en 80% en tableros con 100+ tarjetas
-
-2. **Input validation en backend** (todas las rutas)
-   - Actualmente no se validan UUIDs, campos requeridos, longitudes
-   - Agregar validación con `zod` o validación manual en cada route handler
-   - Priorizar: `POST /api/cards`, `POST /api/users`, `PUT /api/boards/:id`
-
-3. **Loading state en CardDetail** (`src/components/CardDetail.tsx`)
-   - Al guardar cambios no hay feedback visual de "guardando..."
-   - Agregar `isSaving` state con spinner en el botón "Guardar"
-   - Previene doble-submit en conexiones lentas
-
-4. **Paginación en `/api/cards`**
-   - Con 1 000 tx diarias, en 6 meses habrá ~180 000 casos en DB
-   - Agregar `?page=1&limit=50` al GET de cards
-   - Frontend: scroll infinito o paginación en el Kanban
-
-### Prioridad MEDIA — Sesiones siguientes
-5. **Retry logic en api.ts** con backoff exponencial
-   - En `request()`, si el fetch falla por red (no 4xx/5xx), reintentar hasta 3 veces
-   - Usar: `await new Promise(r => setTimeout(r, 500 * attempt))`
-
-6. **Health check endpoint** `GET /api/health`
-   - Hace ping a la DB (`SELECT 1`) y responde `{ ok: true, db: "connected", uptime: N }`
-   - Útil para monitoreo y alertas
-
-7. **SAP calls via backend proxy**
-   - Actualmente las llamadas a SAP B1 van directo desde el frontend
-   - Moverlas a `backend/src/routes/sap.routes.ts` para no exponer credenciales SAP al browser
-
-8. **Logs estructurados** (pino o winston)
-   - Reemplazar `console.error` por logger con niveles (no exponer stack traces al cliente en producción)
-   - No devolver `detail: err.message` al cliente en producción
-
-### Prioridad BAJA
-9. Virtualización de lista larga de tarjetas (`react-virtual` o `@tanstack/react-virtual`)
-10. Debounce en drag-drop (evitar guardar posición en cada frame)
-11. Botón "Disparar sync SFTP" en la UI (actualmente solo via API)
-12. Dashboard de métricas: casos abiertos/cerrados por día, tiempo promedio de resolución
-
 ## Comandos para arrancar
 
 ```sh
@@ -98,19 +21,102 @@ npm run dev
 # Terminal 2 — Frontend
 cd "C:/Proyectos/Nuevo Jira/drag-flow-forge"
 npm run dev
+# Acceder en: http://localhost:8080
 ```
 
-## Verificación rápida del estado
-```sh
-# Backend OK
-curl http://localhost:3001/
+## Lo que ya está hecho (no tocar)
 
-# Login OK (sin campo "password" en respuesta)
+### Infraestructura y seguridad
+- ✅ Login JWT + auto-logout en 401 + sesión restaurada con `/api/auth/me`
+- ✅ Middleware `requireAuth` protege rutas sensibles (users, comments, docs, email, sp)
+- ✅ Rutas públicas para landing pages (boards GET, cards GET/POST)
+- ✅ Contraseñas nunca retornadas en respuestas de API
+- ✅ CORS con `credentials: true`, JSON body limit 10MB
+- ✅ Proxy Vite `/api → localhost:3001` — sin CORS en desarrollo
+- ✅ Retry logic en api.ts: 3 intentos con backoff 500ms×n para errores de red
+
+### Rendimiento
+- ✅ Contador atómico con `ISOLATION LEVEL SERIALIZABLE`
+- ✅ `GET /api/cards`: 4 queries batch, filtra `deleted = false`
+- ✅ `GET /api/users`: 2 queries batch (no N+1)
+- ✅ `GET /api/boards`: 3 queries batch (no N+1)
+- ✅ 15 índices de rendimiento en PostgreSQL
+- ✅ Polling con Page Visibility API (pausa si el tab está oculto)
+- ✅ KanbanCard memoizado con `React.memo` + `useCallback` — evita re-render masivo al drag-drop
+
+### UX y estabilidad
+- ✅ ErrorBoundary global (`src/components/ErrorBoundary.tsx`)
+- ✅ Loading state en CardDetail — spinner en "Guardar", bloquea doble-submit
+- ✅ Memory leak en DocumentViewer corregido
+- ✅ Health check `GET /api/health` con ping a DB
+
+### Validación de inputs (backend)
+- ✅ `POST /api/cards`: boardId, columnId, title validados
+- ✅ `POST /api/users`: username (3-50), password (min 6), fullName validados
+
+### Módulos de integración
+- ✅ SFTP Sync + DocumentViewer (PDFs vinculados por `client_ref`)
+- ✅ ZIP download de todos los archivos de un caso
+- ✅ Formulario público por tablero (landing page sin login)
+- ✅ Integración SAP B1 configurable por tablero
+- ✅ Auto-importación desde SharePoint (SQL Server)
+- ✅ Envío de email via Microsoft Graph
+
+---
+
+## Tareas pendientes (ordenadas por impacto)
+
+### Prioridad ALTA — Siguiente sesión
+1. **Paginación en `/api/cards`**
+   - Con 1 000 tx diarias, en 6 meses habrá ~180 000 casos en DB
+   - Agregar `?page=1&limit=50` al GET de cards
+   - Frontend: virtual scroll o paginación por columna en el Kanban
+   - Es el riesgo más grande de degradación a largo plazo
+
+2. **Input validation completa** (rutas restantes)
+   - Faltan: `PUT /api/cards/:id`, `PUT /api/boards/:id`, `POST /api/comments`
+   - Validar que los IDs sean UUIDs válidos (`/^[0-9a-f-]{36}$/i`)
+   - Validar longitudes de description, comment text
+
+3. **SAP calls via backend proxy**
+   - Actualmente las llamadas a SAP B1 van directo desde el frontend (expone credenciales)
+   - Moverlas a `backend/src/routes/sap.routes.ts`
+
+### Prioridad MEDIA
+4. **Logs estructurados** — no exponer `detail: err.message` en producción
+   - Simple: `...(process.env.NODE_ENV !== 'production' && { detail: err.message })`
+
+5. **Botón "Sync SFTP" en la UI**
+   - Actualmente solo se dispara via `POST /api/documentos/sync` directamente
+
+6. **Debounce en drag-drop** (~300ms para no guardar en cada frame)
+
+### Prioridad BAJA
+7. Virtualización de lista larga (`@tanstack/react-virtual`)
+8. Dashboard de métricas: casos por estado/día, tiempo promedio de resolución
+
+---
+
+## Archivos clave
+| Archivo | Propósito |
+|---------|-----------|
+| `src/pages/Index.tsx` | Controlador principal (~800 líneas) |
+| `src/lib/api.ts` | Cliente HTTP centralizado (proxy Vite, retry, JWT) |
+| `src/components/Kanban.tsx` | Tablero + KanbanCard memoizado |
+| `src/components/CardDetail.tsx` | Detalle de caso (loading state incluido) |
+| `backend/src/index.ts` | Express app + routes + health check |
+| `backend/src/middleware/auth.ts` | Middleware JWT: `requireAuth` |
+| `backend/src/routes/cards.routes.ts` | Queries batch, SERIALIZABLE, soft-delete, validación |
+
+## Verificación rápida
+```sh
+curl http://localhost:3001/api/health
+# → {"ok":true,"db":"connected","uptime":123}
+
 curl -s http://localhost:3001/api/auth/login \
   -X POST -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq '{token: .token, user: .username}'
+  -d '{"username":"admin","password":"admin123"}' | jq '{token:.token, user:.username}'
 
-# Ruta protegida rechaza sin token
 curl -s http://localhost:3001/api/users | jq .error
 # → "Token requerido."
 ```
