@@ -8,7 +8,7 @@ import {
   apiGetCards, apiCreateCard, apiUpdateCard, apiDeleteCard,
   apiCreateComment, apiUpdateComment, apiDeleteComment,
   apiCreateCustomField, apiUpdateCustomField, apiDeleteCustomField,
-  apiGetMe, apiCheckCards, apiGetSpRecords, setAuthToken, getAuthToken,
+  apiGetMe, apiCheckCards, apiGetSpRecords, apiSyncSftp, setAuthToken, getAuthToken,
 } from '@/lib/api';
 import { Icons } from '@/components/Icons';
 
@@ -56,6 +56,7 @@ const Index = () => {
   const [manageSap,           setManageSap]           = useState<Board | null>(null);
   const [manageSpAutoImport,  setManageSpAutoImport]  = useState<Board | null>(null);
   const [isSpImporting,       setIsSpImporting]       = useState<string | null>(null);
+  const [isSyncingDocumentos, setIsSyncingDocumentos] = useState(false);
   const [autoLoginDone,       setAutoLoginDone]       = useState(false);
 
   // Polling state
@@ -573,6 +574,20 @@ const Index = () => {
     }
   };
 
+  const syncDocumentos = async () => {
+    if (isSyncingDocumentos) return;
+    setIsSyncingDocumentos(true);
+    setFeedback({ type: 'ok', message: 'Sincronizando documentos SFTP...' });
+    try {
+      const result = await apiSyncSftp();
+      fb(`Sync completado: ${result.imported} nuevos, ${result.skipped} existentes${result.errors.length ? ` (${result.errors.length} errores)` : ''}`);
+    } catch (err) {
+      fbErr(`Error SFTP: ${errMsg(err)}`);
+    } finally {
+      setIsSyncingDocumentos(false);
+    }
+  };
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const pageTitle = page === 'dashboard' ? 'Inicio'
     : page === 'users'   ? 'Usuarios'
@@ -660,6 +675,17 @@ const Index = () => {
           <h1 className="text-[18px] font-bold text-foreground">{pageTitle}</h1>
           <div className="flex gap-2 items-center">
             {feedback && <div className={`py-2 px-3.5 rounded-lg text-[13px] ${feedback.type === 'ok' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>{feedback.message}</div>}
+            {isAdmin && (
+              <button
+                className={`flex items-center gap-1.5 px-3 py-[7px] rounded-md text-[12px] font-semibold border transition-colors ${isSyncingDocumentos ? 'bg-primary/10 text-primary border-primary/30 cursor-not-allowed opacity-70' : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'}`}
+                onClick={syncDocumentos}
+                disabled={isSyncingDocumentos}
+                title="Sincronizar documentos PDF desde servidor SFTP">
+                {isSyncingDocumentos
+                  ? <><Icons.spinner size={13} className="animate-spin" /> Sincronizando...</>
+                  : <><Icons.sync size={13} /> Sync SFTP</>}
+              </button>
+            )}
           </div>
         </div>
         <div className="p-6 px-7">

@@ -75,16 +75,21 @@ router.get('/check', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/cards?boardId=X  (sin boardId = todos los casos)
+// GET /api/cards?boardId=X&limit=N&offset=N  (sin boardId = todos los casos)
 // Optimizado: 4 queries batch en vez de N+1
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { boardId } = req.query;
+    const limit  = Math.min(parseInt(String(req.query.limit  ?? '2000'), 10) || 2000, 5000);
+    const offset = Math.max(parseInt(String(req.query.offset ?? '0'),    10) || 0,    0);
 
     // 1. Fetch cards — excluir soft-deleted (1 query)
-    const rawCards = boardId
+    const allMatching = boardId
       ? await db.select().from(cards).where(and(eq(cards.boardId, String(boardId)), eq(cards.deleted, false))).orderBy(desc(cards.createdAt))
       : await db.select().from(cards).where(eq(cards.deleted, false)).orderBy(desc(cards.createdAt));
+
+    res.setHeader('X-Total-Count', String(allMatching.length));
+    const rawCards = allMatching.slice(offset, offset + limit);
 
     if (rawCards.length === 0) return res.json([]);
 
@@ -165,7 +170,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al obtener casos.', detail: err.message });
+    return res.status(500).json({ error: 'Error al obtener casos.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   }
 });
 
@@ -250,15 +255,25 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (err: any) {
     await client.query('ROLLBACK');
     console.error('[cards] create error:', err);
-    return res.status(500).json({ error: 'Error al crear caso.', detail: err.message });
+    return res.status(500).json({ error: 'Error al crear caso.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }
 });
 
+const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 // PUT /api/cards/:id
 router.put('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id);
+  if (!isUUID(id)) return res.status(400).json({ error: 'id de caso inválido.' });
+
+  const { title, columnId } = req.body;
+  if (title !== undefined && (typeof title !== 'string' || title.trim().length === 0 || title.length > 500))
+    return res.status(400).json({ error: 'title debe ser un texto no vacío (máx 500 caracteres).' });
+  if (columnId !== undefined && typeof columnId !== 'string')
+    return res.status(400).json({ error: 'columnId inválido.' });
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -321,7 +336,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     return res.json(await serializeCard(updated));
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al actualizar caso.', detail: err.message });
+    return res.status(500).json({ error: 'Error al actualizar caso.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }
@@ -339,7 +354,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }).where(eq(cards.id, id));
     return res.json({ ok: true });
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al eliminar caso.', detail: err.message });
+    return res.status(500).json({ error: 'Error al eliminar caso.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   }
 });
 

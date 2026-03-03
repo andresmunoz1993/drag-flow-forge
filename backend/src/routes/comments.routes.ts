@@ -22,10 +22,17 @@ async function serializeComment(commentId: string) {
   };
 }
 
+const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 // POST /api/cards/:cardId/comments
 router.post('/', async (req: Request, res: Response) => {
   const cardId = String(req.params.cardId);
+  if (!isUUID(cardId)) return res.status(400).json({ error: 'cardId inválido.' });
+
   const { authorId, authorName, text, createdAt, files } = req.body;
+  if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 5000)
+    return res.status(400).json({ error: 'text es requerido (máx 5000 caracteres).' });
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -52,7 +59,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(201).json(serialized);
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al crear comentario.', detail: err.message });
+    return res.status(500).json({ error: 'Error al crear comentario.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }
@@ -61,7 +68,12 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT /api/comments/:id
 router.put('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id);
+  if (!isUUID(id)) return res.status(400).json({ error: 'id de comentario inválido.' });
+
   const { text, modifiedBy, modifiedAt, files } = req.body;
+  if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 5000)
+    return res.status(400).json({ error: 'text es requerido (máx 5000 caracteres).' });
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -92,7 +104,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     return res.json(serialized);
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al actualizar comentario.', detail: err.message });
+    return res.status(500).json({ error: 'Error al actualizar comentario.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }
@@ -110,7 +122,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     return res.json({ ok: true });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al eliminar comentario.', detail: err.message });
+    return res.status(500).json({ error: 'Error al eliminar comentario.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }

@@ -89,7 +89,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al obtener tableros.', detail: err.message });
+    return res.status(500).json({ error: 'Error al obtener tableros.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   }
 });
 
@@ -101,14 +101,23 @@ router.post('/', async (req: Request, res: Response) => {
     const [newBoard] = await db.insert(boards).values({ name, prefix: prefix.toUpperCase(), nextNum: 1 }).returning();
     return res.status(201).json(await serializeBoard(newBoard));
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al crear tablero.', detail: err.message });
+    return res.status(500).json({ error: 'Error al crear tablero.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   }
 });
+
+const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 // PUT /api/boards/:id
 router.put('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id);
+  if (!isUUID(id)) return res.status(400).json({ error: 'id de tablero inválido.' });
+
   const { name, prefix, nextNum, sap, spAutoImport, landing } = req.body;
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.length > 200))
+    return res.status(400).json({ error: 'name debe ser un texto no vacío (máx 200 caracteres).' });
+  if (prefix !== undefined && (typeof prefix !== 'string' || prefix.trim().length === 0 || prefix.length > 20))
+    return res.status(400).json({ error: 'prefix debe ser un texto no vacío (máx 20 caracteres).' });
+
   try {
     const upd: Partial<typeof boards.$inferInsert> = {};
     if (name          !== undefined) upd.name         = name;
@@ -122,7 +131,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (!updated) return res.status(404).json({ error: 'Tablero no encontrado.' });
     return res.json(await serializeBoard(updated));
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al actualizar tablero.', detail: err.message });
+    return res.status(500).json({ error: 'Error al actualizar tablero.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   }
 });
 
@@ -138,7 +147,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     return res.json({ ok: true });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al eliminar tablero.', detail: err.message });
+    return res.status(500).json({ error: 'Error al eliminar tablero.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }
@@ -187,7 +196,7 @@ router.put('/:id/columns', async (req: Request, res: Response) => {
     return res.json(result);
   } catch (err: any) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Error al guardar carriles.', detail: err.message });
+    return res.status(500).json({ error: 'Error al guardar carriles.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
   } finally {
     client.release();
   }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, memo, useRef } from 'react';
 import type { Board, Card, User } from '@/types';
 import { Icons } from './Icons';
 import { getInitials } from '@/lib/storage';
@@ -93,10 +93,19 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
 
+  // Debounce ref: evita que drops dobles (bug de algunos browsers) llamen al API dos veces
+  const moveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // useCallback: handlers estables para que KanbanCard no re-renderice por referencia nueva
   const handleDragStart = useCallback((id: string) => setDragId(id), []);
   const handleDragEnd   = useCallback(() => setDragId(null), []);
   const handleCloseCase = useCallback((card: Card) => onCloseCase({ card, colId: card.columnId }), [onCloseCase]);
+
+  const handleDrop = useCallback((cardId: string, colId: string) => {
+    if (moveTimeoutRef.current) return; // ignora drops duplicados dentro de 300ms
+    onMoveCard(cardId, colId);
+    moveTimeoutRef.current = setTimeout(() => { moveTimeoutRef.current = null; }, 300);
+  }, [onMoveCard]);
 
   if (!sortedCols.length) {
     return (
@@ -147,7 +156,7 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
               style={{ maxHeight: 'calc(100vh - 200px)' }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverCol(col.id); }}
               onDragLeave={() => setOverCol(null)}
-              onDrop={e => { e.preventDefault(); setOverCol(null); if (dragId) { onMoveCard(dragId, col.id); setDragId(null); } }}>
+              onDrop={e => { e.preventDefault(); setOverCol(null); if (dragId) { handleDrop(dragId, col.id); setDragId(null); } }}>
               <div className="py-3 px-3.5 border-b border-border flex items-center justify-between shrink-0">
                 <span className="text-[12px] font-bold text-foreground uppercase tracking-tight">
                   {col.name}

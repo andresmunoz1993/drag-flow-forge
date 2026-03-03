@@ -10,25 +10,38 @@ interface CaseListProps {
   onCardClick: (c: Card) => void;
 }
 
+const PAGE_SIZE = 50;
+
 const CaseList: React.FC<CaseListProps> = ({ cards, boards, users, onCardClick }) => {
   const [search, setSearch] = useState('');
   const [show, setShow] = useState<'active' | 'closed' | 'deleted'>('active');
   const [filterBoard, setFilterBoard] = useState('all');
+  const [page, setPage] = useState(0);
 
-  const filtered = useMemo(() => cards.filter(c => {
-    if (show === 'active' && (c.deleted || c.closed)) return false;
-    if (show === 'closed' && !c.closed) return false;
-    if (show === 'deleted' && !c.deleted) return false;
-    const ms = !search || (search.length >= 3 && c.code.toLowerCase().includes(search.toLowerCase()));
-    return ms && (filterBoard === 'all' || c.boardId === filterBoard);
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [cards, search, show, filterBoard]);
+  const filtered = useMemo(() => {
+    setPage(0); // Reset al cambiar filtros
+    return cards.filter(c => {
+      if (show === 'active' && (c.deleted || c.closed)) return false;
+      if (show === 'closed' && !c.closed) return false;
+      if (show === 'deleted' && !c.deleted) return false;
+      const ms = !search || (search.length >= 3 && (
+        c.code.toLowerCase().includes(search.toLowerCase()) ||
+        c.title.toLowerCase().includes(search.toLowerCase())
+      ));
+      return ms && (filterBoard === 'all' || c.boardId === filterBoard);
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [cards, search, show, filterBoard]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(page, totalPages - 1);
+  const pageItems  = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   return (
     <div className="fade-in">
       <div className="flex gap-2.5 mb-4 items-center flex-wrap">
         <div className="relative flex-1 max-w-[280px]">
           <input className="w-full py-2 px-3.5 pl-8 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none focus:border-primary placeholder:text-text-muted"
-            placeholder="Mínimo 3 dígitos..." value={search} onChange={e => setSearch(e.target.value)} />
+            placeholder="Código o título..." value={search} onChange={e => setSearch(e.target.value)} />
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"><Icons.search size={14} /></span>
         </div>
         <select className="py-2 px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none cursor-pointer w-[200px]"
@@ -56,7 +69,7 @@ const CaseList: React.FC<CaseListProps> = ({ cards, boards, users, onCardClick }
             </tr>
           </thead>
           <tbody>
-            {filtered.map(c => {
+            {pageItems.map(c => {
               const b = boards.find(x => x.id === c.boardId);
               const col = b?.columns.find(x => x.id === c.columnId);
               const a = users.find(u => u.id === c.assigneeId);
@@ -77,10 +90,28 @@ const CaseList: React.FC<CaseListProps> = ({ cards, boards, users, onCardClick }
                 </tr>
               );
             })}
-            {!filtered.length && <tr><td colSpan={8} className="text-center py-10 text-text-muted">No se encontraron casos.</td></tr>}
+            {!pageItems.length && <tr><td colSpan={8} className="text-center py-10 text-text-muted">No se encontraron casos.</td></tr>}
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            className="px-3 py-1.5 rounded text-[12px] font-semibold bg-surface-3 border border-border text-foreground cursor-pointer disabled:opacity-40 hover:bg-surface-4 disabled:cursor-not-allowed"
+            onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}>
+            ← Anterior
+          </button>
+          <span className="text-[12px] text-text-muted">
+            Página {safePage + 1} de {totalPages} ({filtered.length} casos)
+          </span>
+          <button
+            className="px-3 py-1.5 rounded text-[12px] font-semibold bg-surface-3 border border-border text-foreground cursor-pointer disabled:opacity-40 hover:bg-surface-4 disabled:cursor-not-allowed"
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={safePage >= totalPages - 1}>
+            Siguiente →
+          </button>
+        </div>
+      )}
     </div>
   );
 };
