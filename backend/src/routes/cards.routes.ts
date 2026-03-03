@@ -2,8 +2,81 @@ import { Router, Request, Response } from 'express';
 import { eq, desc, inArray, and } from 'drizzle-orm';
 import { db, pool } from '../db/index';
 import { cards, cardFiles, comments, commentFiles, globalCounter, boards } from '../db/schema';
+import { sendEmail } from '../services/email.service';
 
 const router = Router();
+
+/**
+ * Verifica si una columna supera 100 tarjetas activas y, si es así,
+ * envía un correo de alerta a los administradores del tablero.
+ * Se llama de forma asíncrona (fire-and-forget) para no bloquear la respuesta.
+ */
+async function checkColumnOverflowAlert(columnId: string, boardId: string): Promise<void> {
+  try {
+    // Contar tarjetas activas en la columna
+    const countRes = await pool.query<{ count: string; col_name: string; board_name: string }>(
+      `SELECT COUNT(c.id)::text AS count,
+              col.name         AS col_name,
+              b.name           AS board_name
+       FROM cards c
+       JOIN columns col ON col.id = c.column_id
+       JOIN boards  b   ON b.id   = c.board_id
+       WHERE c.column_id = $1
+         AND c.deleted   = false
+         AND c.closed    = false
+       GROUP BY col.name, b.name`,
+      [columnId]
+    );
+
+    if (!countRes.rows.length) return;
+    const count = parseInt(countRes.rows[0].count, 10);
+    if (count < 100) return;
+
+    const colName   = countRes.rows[0].col_name;
+    const boardName = countRes.rows[0].board_name;
+
+    // Obtener emails de admins: isAdminTotal=true  OR  role='admin_tablero' para este tablero
+    const adminsRes = await pool.query<{ email: string; full_name: string }>(
+      `SELECT DISTINCT u.email, u.full_name
+       FROM users u
+       WHERE u.active = true AND u.email != ''
+         AND (
+           u.is_admin_total = true
+           OR EXISTS (
+             SELECT 1 FROM user_board_roles ubr
+             WHERE ubr.user_id = u.id
+               AND ubr.board_id = $1
+               AND ubr.role = 'admin_tablero'
+           )
+         )`,
+      [boardId]
+    );
+
+    if (!adminsRes.rows.length) return;
+
+    const toAddresses = adminsRes.rows.map(r => r.email);
+    await sendEmail({
+      to:       toAddresses,
+      subject:  `[Allers] Alerta: columna "${colName}" tiene ${count} casos sin mover`,
+      bodyType: 'HTML',
+      body: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+          <h2 style="color:#dc2626;margin-top:0">⚠️ Alerta de acumulación de casos</h2>
+          <p>La columna <strong>"${colName}"</strong> del tablero <strong>"${boardName}"</strong>
+             ha alcanzado <strong>${count} casos activos</strong>.</p>
+          <p>Se recomienda revisar y movilizar los casos para evitar cuellos de botella.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+          <p style="color:#6b7280;font-size:13px">
+            Este mensaje fue enviado automáticamente por el sistema Allers.
+          </p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    // No propagar errores de alerta — son best-effort
+    console.warn('[ColumnAlert] No se pudo enviar alerta:', (err as Error)?.message);
+  }
+}
 
 // Serializa un card con sus files y comments
 async function serializeCard(card: typeof cards.$inferSelect) {
@@ -251,6 +324,10 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Serializar y retornar
     const [row] = await db.select().from(cards).where(eq(cards.id, newCard.id));
+
+    // Alerta de desbordamiento de columna (fire-and-forget)
+    checkColumnOverflowAlert(columnId, boardId);
+
     return res.status(201).json(await serializeCard(row));
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -333,6 +410,12 @@ router.put('/:id', async (req: Request, res: Response) => {
     await client.query('COMMIT');
     const [updated] = await db.select().from(cards).where(eq(cards.id, id));
     if (!updated) return res.status(404).json({ error: 'Caso no encontrado.' });
+
+    // Alerta de desbordamiento de columna cuando se mueve la tarjeta (fire-and-forget)
+    if (columnId && updated.boardId) {
+      checkColumnOverflowAlert(updated.columnId, updated.boardId);
+    }
+
     return res.json(await serializeCard(updated));
   } catch (err: any) {
     await client.query('ROLLBACK');

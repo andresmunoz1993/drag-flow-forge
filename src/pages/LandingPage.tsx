@@ -5,8 +5,7 @@ import {
   generateId, readFileAsDataUrl, MAX_FILE_SIZE, formatSize, getFileExt,
   applyFormulaFields,
 } from '@/lib/storage';
-import { apiGetBoards, apiGetUsers, apiCreateCard } from '@/lib/api';
-import { searchSapDocument, SapError } from '@/lib/sapService';
+import { apiGetBoards, apiGetUsers, apiCreateCard, apiSearchSap } from '@/lib/api';
 
 /* ─── helpers ─── */
 const FileRow: React.FC<{ f: FileAttachment; onRemove?: () => void }> = ({ f, onRemove }) => (
@@ -188,10 +187,10 @@ const LandingPage: React.FC = () => {
     setSapError('');
     setSapResult(null);
     try {
-      const result = await searchSapDocument(sapDocNum.trim(), board.sap);
+      const result = await apiSearchSap(board.id, sapDocNum.trim());
       setSapResult(result);
     } catch (e) {
-      setSapError(e instanceof SapError ? e.message : 'Error al consultar SAP');
+      setSapError(e instanceof Error ? e.message : 'Error al consultar SAP');
     } finally {
       setSapLoading(false);
     }

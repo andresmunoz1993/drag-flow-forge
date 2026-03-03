@@ -159,6 +159,11 @@ export const apiGetCounter = (): Promise<{ next_card_num: number }> =>
 export const apiGetSpRecords = (boardId: string, spName: string): Promise<{ records: import('@/types').SpCaseRecord[] }> =>
   GET(`/api/sp/fetch?boardId=${encodeURIComponent(boardId)}&spName=${encodeURIComponent(spName)}`);
 
+// ─── SAP B1 Proxy ─────────────────────────────────────────────────────────────
+
+export const apiSearchSap = (boardId: string, docNumber: string): Promise<import('@/types').SapOrderResult> =>
+  POST('/api/sap/search', { boardId, docNumber });
+
 // ─── Documentos SFTP ──────────────────────────────────────────────────────────
 
 export const apiGetDocumentos = (cardId: string): Promise<import('@/types').ClientDocument[]> =>

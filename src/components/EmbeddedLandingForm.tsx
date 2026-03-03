@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import type { Board, CustomField, FileAttachment, User, SapOrderResult } from '@/types';
 import { readFileAsDataUrl, MAX_FILE_SIZE, formatSize, getFileExt } from '@/lib/storage';
-import { searchSapDocument, SapError } from '@/lib/sapService';
+import { apiSearchSap } from '@/lib/api';
 import { Icons } from './Icons';
 
 interface EmbeddedLandingFormProps {
@@ -144,10 +144,10 @@ const EmbeddedLandingForm: React.FC<EmbeddedLandingFormProps> = ({ board, users,
     setSapError('');
     setSapResult(null);
     try {
-      const result = await searchSapDocument(sapDocNum.trim(), board.sap);
+      const result = await apiSearchSap(board.id, sapDocNum.trim());
       setSapResult(result);
     } catch (e) {
-      setSapError(e instanceof SapError ? e.message : 'Error al consultar SAP');
+      setSapError(e instanceof Error ? e.message : 'Error al consultar SAP');
     } finally {
       setSapLoading(false);
     }

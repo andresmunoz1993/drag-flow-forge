@@ -17,6 +17,7 @@ import commentsRouter      from "./routes/comments.routes";
 import customFieldsRouter  from "./routes/custom-fields.routes";
 import counterRouter       from "./routes/counter.routes";
 import documentosRouter    from "./routes/documentos.routes";
+import sapProxyRouter      from "./routes/sap-proxy.routes";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -33,9 +34,10 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 
 // ── Rutas públicas ────────────────────────────────────────────────────────────
-app.use("/api/auth",   authRouter);    // login y /me tienen su propia lógica JWT
-app.use("/api/boards", boardsRouter);  // GET público para landing pages
-app.use("/api/cards",  cardsRouter);   // GET/POST público para landing pages
+app.use("/api/auth",   authRouter);      // login y /me tienen su propia lógica JWT
+app.use("/api/boards", boardsRouter);    // GET público para landing pages
+app.use("/api/cards",  cardsRouter);     // GET/POST público para landing pages
+app.use("/api/sap",    sapProxyRouter);  // Proxy SAP B1 (público — usado desde landing pages sin JWT)
 
 // ── Rutas protegidas (requieren JWT) ──────────────────────────────────────────
 app.use("/api/users",         requireAuth, usersRouter);
