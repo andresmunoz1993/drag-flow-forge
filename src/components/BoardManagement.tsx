@@ -325,10 +325,18 @@ export const SapManager: React.FC<SapManagerProps> = ({ board, onSave, onClose }
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
 
+  // Si ya existe config, la contraseña puede llegar vacía (backend la omite por seguridad).
+  // Dejar vacío significa "mantener la contraseña guardada".
+  const hasExistingPassword = !!existing;
+
   const handleSave = () => {
     if (enabled) {
-      if (!baseUrl.trim() || !companyDB.trim() || !username.trim() || !password.trim() || !queryName.trim()) {
+      if (!baseUrl.trim() || !companyDB.trim() || !username.trim() || !queryName.trim()) {
         setError('Todos los campos son requeridos para habilitar SAP.');
+        return;
+      }
+      if (!hasExistingPassword && !password.trim()) {
+        setError('La contraseña es requerida al configurar SAP por primera vez.');
         return;
       }
       onSave({ baseUrl: baseUrl.trim(), companyDB: companyDB.trim(), username: username.trim(), password: password.trim(), queryName: queryName.trim() });
@@ -380,8 +388,14 @@ export const SapManager: React.FC<SapManagerProps> = ({ board, onSave, onClose }
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-text-secondary mb-1.5 uppercase tracking-wide">Contraseña</label>
+                {hasExistingPassword && (
+                  <div className="flex items-center gap-1 text-[11px] text-success mb-1.5">
+                    <Icons.check size={11} /> Contraseña guardada — dejar vacío para mantener la actual
+                  </div>
+                )}
                 <div className="relative">
-                  <input className={inp + ' pr-10'} type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••" />
+                  <input className={inp + ' pr-10'} type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={hasExistingPassword ? 'Dejar vacío para mantener la contraseña actual' : '••••••'} />
                   <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted cursor-pointer p-1"
                     onClick={() => setShowPw(p => !p)}>{showPw ? <Icons.eyeOff size={15} /> : <Icons.eye size={15} />}</button>
                 </div>

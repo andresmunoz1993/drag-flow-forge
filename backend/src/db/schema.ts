@@ -128,6 +128,17 @@ export const adjuntosClientes = pgTable('adjuntos_clientes', {
   fechaSincronizacion:  timestamp('fecha_sincronizacion', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── card_mentions ─────────────────────────────────────────────────────────────
+export const cardMentions = pgTable('card_mentions', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  cardId:            uuid('card_id').notNull().references(() => cards.id, { onDelete: 'cascade' }),
+  userId:            uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  mentionedById:     text('mentioned_by_id').notNull(),
+  mentionedByName:   text('mentioned_by_name').notNull(),
+  firstMentionedAt:  timestamp('first_mentioned_at', { withTimezone: true }).notNull().defaultNow(),
+  context:           text('context').notNull().default('description'), // 'description' | 'comment'
+});
+
 // ── user_board_roles ──────────────────────────────────────────────────────────
 export const userBoardRoles = pgTable('user_board_roles', {
   userId:  uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

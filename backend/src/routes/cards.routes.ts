@@ -3,6 +3,7 @@ import { eq, desc, inArray, and } from 'drizzle-orm';
 import { db, pool } from '../db/index';
 import { cards, cardFiles, comments, commentFiles, globalCounter, boards } from '../db/schema';
 import { sendEmail } from '../services/email.service';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -75,6 +76,182 @@ async function checkColumnOverflowAlert(columnId: string, boardId: string): Prom
   } catch (err) {
     // No propagar errores de alerta — son best-effort
     console.warn('[ColumnAlert] No se pudo enviar alerta:', (err as Error)?.message);
+  }
+}
+
+/**
+ * Parsea @NombreCompleto del texto, inserta en card_mentions los nuevos y envía emails.
+ * Fire-and-forget: nunca bloquea la respuesta HTTP.
+ */
+async function processMentions(
+  cardId:          string,
+  text:            string,
+  mentionedById:   string,
+  mentionedByName: string,
+  context:         'description' | 'comment',
+  cardCode:        string,
+  cardTitle:       string,
+  boardName:       string,
+): Promise<void> {
+  try {
+    if (!text?.trim()) return;
+
+    // Todos los usuarios activos con email
+    const usersRes = await pool.query<{ id: string; full_name: string; email: string }>(
+      `SELECT id, full_name, email FROM users WHERE active = true AND email != '' ORDER BY full_name`
+    );
+
+    const textLower = text.toLowerCase();
+    const toMention = usersRes.rows.filter(u =>
+      textLower.includes(`@${u.full_name.toLowerCase()}`)
+    );
+    if (!toMention.length) return;
+
+    // Insertar solo los que no existen (ON CONFLICT DO NOTHING) y recuperar los nuevos
+    const newlyMentioned: typeof toMention = [];
+    for (const u of toMention) {
+      const result = await pool.query(
+        `INSERT INTO card_mentions (card_id, user_id, mentioned_by_id, mentioned_by_name, context)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (card_id, user_id) DO NOTHING
+         RETURNING id`,
+        [cardId, u.id, mentionedById, mentionedByName, context]
+      );
+      if (result.rowCount && result.rowCount > 0) newlyMentioned.push(u);
+    }
+
+    if (!newlyMentioned.length) return;
+
+    // Enviar email solo a los recién mencionados
+    const textSnippet = text.length > 200 ? text.slice(0, 200) + '…' : text;
+    for (const u of newlyMentioned) {
+      await sendEmail({
+        to:       u.email,
+        subject:  `[Allers] Te han etiquetado en el caso ${cardCode}`,
+        bodyType: 'HTML',
+        body: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#2563eb;margin-top:0">📌 Has sido etiquetado en un caso</h2>
+            <p><strong>${mentionedByName}</strong> te mencionó en el caso
+               <strong>${cardCode} — ${cardTitle}</strong> (${boardName}).</p>
+            <div style="background:#f3f4f6;border-left:3px solid #2563eb;padding:12px 16px;border-radius:4px;margin:16px 0">
+              <p style="margin:0;color:#374151;font-size:14px;font-style:italic">"${textSnippet}"</p>
+            </div>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+            <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+          </div>
+        `,
+      });
+    }
+  } catch (err) {
+    console.warn('[Mentions] No se pudo procesar menciones:', (err as Error)?.message);
+  }
+}
+
+/**
+ * Envía correo al responsable del caso cuando el carril cambia.
+ * Fire-and-forget.
+ */
+async function notifyColumnChange(
+  cardCode:    string,
+  cardTitle:   string,
+  oldColId:    string,
+  newColId:    string,
+  assigneeId:  string,
+  movedBy:     string,
+): Promise<void> {
+  try {
+    if (!assigneeId) return;
+
+    const [assigneeRes, oldColRes, newColRes] = await Promise.all([
+      pool.query<{ email: string; full_name: string }>(
+        'SELECT email, full_name FROM users WHERE id = $1 AND active = true AND email != \'\'',
+        [assigneeId]
+      ),
+      pool.query<{ name: string }>('SELECT name FROM columns WHERE id = $1', [oldColId]),
+      pool.query<{ name: string }>('SELECT name FROM columns WHERE id = $1', [newColId]),
+    ]);
+
+    const assignee = assigneeRes.rows[0];
+    if (!assignee?.email) return;
+
+    const oldColName = oldColRes.rows[0]?.name ?? 'desconocido';
+    const newColName = newColRes.rows[0]?.name ?? 'desconocido';
+
+    await sendEmail({
+      to:       assignee.email,
+      subject:  `[Allers] Caso ${cardCode} movido de carril`,
+      bodyType: 'HTML',
+      body: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+          <h2 style="color:#2563eb;margin-top:0">🔀 Caso movido de carril</h2>
+          <p>Hola <strong>${assignee.full_name}</strong>,</p>
+          <p>El caso <strong>${cardCode} — ${cardTitle}</strong> que tienes asignado
+             fue movido por <strong>${movedBy || 'el sistema'}</strong>.</p>
+          <table style="border-collapse:collapse;margin:16px 0">
+            <tr>
+              <td style="padding:8px 14px;background:#f3f4f6;border-radius:4px 0 0 0;font-size:13px;color:#6b7280;white-space:nowrap">Antes</td>
+              <td style="padding:8px 14px;background:#f3f4f6;border-radius:0 4px 0 0;font-size:13px;color:#374151;font-weight:600">${oldColName}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 14px;background:#eff6ff;border-radius:0 0 0 4px;font-size:13px;color:#2563eb;white-space:nowrap">Ahora</td>
+              <td style="padding:8px 14px;background:#eff6ff;border-radius:0 0 4px 0;font-size:13px;color:#1d4ed8;font-weight:600">${newColName}</td>
+            </tr>
+          </table>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+          <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.warn('[ColumnChange] No se pudo notificar:', (err as Error)?.message);
+  }
+}
+
+/**
+ * Envía correo al nuevo responsable cuando se le asigna un caso.
+ * Fire-and-forget.
+ */
+async function notifyAssigneeChange(
+  cardCode:     string,
+  cardTitle:    string,
+  boardId:      string,
+  newAssigneeId: string,
+  assignedBy:   string,
+): Promise<void> {
+  try {
+    if (!newAssigneeId) return;
+
+    const [assigneeRes, boardRes] = await Promise.all([
+      pool.query<{ email: string; full_name: string }>(
+        'SELECT email, full_name FROM users WHERE id = $1 AND active = true AND email != \'\'',
+        [newAssigneeId]
+      ),
+      pool.query<{ name: string }>('SELECT name FROM boards WHERE id = $1', [boardId]),
+    ]);
+
+    const assignee = assigneeRes.rows[0];
+    if (!assignee?.email) return;
+
+    const boardName = boardRes.rows[0]?.name ?? '';
+
+    await sendEmail({
+      to:       assignee.email,
+      subject:  `[Allers] Te han asignado el caso ${cardCode}`,
+      bodyType: 'HTML',
+      body: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+          <h2 style="color:#2563eb;margin-top:0">👤 Nuevo caso asignado</h2>
+          <p>Hola <strong>${assignee.full_name}</strong>,</p>
+          <p><strong>${assignedBy || 'Un administrador'}</strong> te ha asignado el caso
+             <strong>${cardCode} — ${cardTitle}</strong>${boardName ? ` (${boardName})` : ''}.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+          <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.warn('[AssigneeChange] No se pudo notificar:', (err as Error)?.message);
   }
 }
 
@@ -328,6 +505,17 @@ router.post('/', async (req: Request, res: Response) => {
     // Alerta de desbordamiento de columna (fire-and-forget)
     checkColumnOverflowAlert(columnId, boardId);
 
+    // Procesar @menciones en la descripción (fire-and-forget)
+    if (description) {
+      const boardNameRes = await pool.query<{ name: string }>('SELECT name FROM boards WHERE id = $1', [boardId]);
+      const boardName = boardNameRes.rows[0]?.name ?? '';
+      processMentions(
+        row.id, description,
+        req.body.reporterId ?? '', req.body.reporterName ?? '',
+        'description', code, title, boardName
+      );
+    }
+
     return res.status(201).json(await serializeCard(row));
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -339,6 +527,44 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+// GET /api/cards/:id/mentions  — colaboradores etiquetados en el caso
+router.get('/:id/mentions', requireAuth, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  if (!isUUID(id)) return res.status(400).json({ error: 'id de caso inválido.' });
+  try {
+    const result = await pool.query<{
+      user_id:            string;
+      user_name:          string;
+      user_email:         string;
+      mentioned_by_name:  string;
+      first_mentioned_at: string;
+      context:            string;
+    }>(
+      `SELECT cm.user_id,
+              u.full_name  AS user_name,
+              u.email      AS user_email,
+              cm.mentioned_by_name,
+              cm.first_mentioned_at,
+              cm.context
+       FROM card_mentions cm
+       JOIN users u ON u.id = cm.user_id
+       WHERE cm.card_id = $1
+       ORDER BY cm.first_mentioned_at ASC`,
+      [id]
+    );
+    return res.json(result.rows.map(r => ({
+      userId:           r.user_id,
+      userName:         r.user_name,
+      userEmail:        r.user_email,
+      mentionedByName:  r.mentioned_by_name,
+      firstMentionedAt: r.first_mentioned_at,
+      context:          r.context,
+    })));
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al obtener menciones.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });
+  }
+});
 
 // PUT /api/cards/:id
 router.put('/:id', async (req: Request, res: Response) => {
@@ -354,6 +580,13 @@ router.put('/:id', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Capturar estado previo para detectar cambios (column, assignee)
+    const prevRes = await client.query<{ column_id: string; assignee_id: string | null }>(
+      'SELECT column_id, assignee_id FROM cards WHERE id = $1',
+      [id]
+    );
+    const prev = prevRes.rows[0] ?? null;
 
     const {
       columnId, title, description, priority, type,
@@ -414,6 +647,42 @@ router.put('/:id', async (req: Request, res: Response) => {
     // Alerta de desbordamiento de columna cuando se mueve la tarjeta (fire-and-forget)
     if (columnId && updated.boardId) {
       checkColumnOverflowAlert(updated.columnId, updated.boardId);
+    }
+
+    // Procesar @menciones si la descripción fue modificada (fire-and-forget)
+    if (description !== undefined && description) {
+      const boardNameRes = await pool.query<{ name: string }>('SELECT name FROM boards WHERE id = $1', [updated.boardId]);
+      const boardName = boardNameRes.rows[0]?.name ?? '';
+      processMentions(
+        id, description,
+        String((req as any).user?.userId ?? req.body.modifiedBy ?? ''),
+        req.body.modifiedBy ?? '',
+        'description', updated.code, updated.title, boardName
+      );
+    }
+
+    // Notificar cambio de carril al responsable actual (fire-and-forget)
+    if (prev && columnId && columnId !== prev.column_id) {
+      const currentAssigneeId = updated.assigneeId ?? prev.assignee_id;
+      if (currentAssigneeId) {
+        notifyColumnChange(
+          updated.code, updated.title,
+          prev.column_id, columnId,
+          currentAssigneeId,
+          modifiedBy ?? ''
+        );
+      }
+    }
+
+    // Notificar al nuevo responsable si cambió (fire-and-forget)
+    const assigneeInBody = 'assigneeId' in req.body;
+    if (prev && assigneeInBody && assigneeId && (assigneeId || null) !== (prev.assignee_id || null)) {
+      notifyAssigneeChange(
+        updated.code, updated.title,
+        updated.boardId,
+        assigneeId,
+        modifiedBy ?? ''
+      );
     }
 
     return res.json(await serializeCard(updated));

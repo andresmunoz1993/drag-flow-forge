@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import type { Board, Card, User, Comment as CommentType, FileAttachment, CustomField } from '@/types';
+import React, { useState, useEffect } from 'react';
+import type { Board, Card, CardMention, User, Comment as CommentType, FileAttachment, CustomField } from '@/types';
 import { Icons } from './Icons';
 import FileUpload from './FileUpload';
 import DocumentViewer from './DocumentViewer';
+import MentionTextarea, { renderWithMentions } from './MentionTextarea';
 import { formatDate, getInitials, generateId } from '@/lib/storage';
+import { apiGetMentions } from '@/lib/api';
 
 interface CardDetailProps {
   card: Card;
@@ -31,6 +33,13 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
   const [clientRef, setClientRef] = useState(card.clientRef || '');
   const [zipping, setZipping] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [mentions, setMentions] = useState<CardMention[]>([]);
+  const [pendingAssigneeId, setPendingAssigneeId] = useState<string | null>(null);
+
+  // Cargar colaboradores etiquetados al montar
+  useEffect(() => {
+    apiGetMentions(initCard.id).then(setMentions).catch(() => {});
+  }, [initCard.id]);
 
   const totalFiles = (card.files || []).length + (card.comments || []).reduce((s, c) => s + (c.files?.length || 0), 0);
 
@@ -83,8 +92,13 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
 
   const canEditComment = (c: CommentType) => c.authorId === me.id || me.isAdminTotal || me.boardRoles[board?.id || ''] === 'admin_tablero';
 
-  const saveEdit = async () => {
+  const saveEdit = async (confirmedAssigneeChange = false) => {
     if (isSaving) return;
+    // Si el responsable cambió y aún no confirmó, mostrar diálogo de confirmación
+    if (assigneeId !== card.assigneeId && !confirmedAssigneeChange) {
+      setPendingAssigneeId(assigneeId);
+      return;
+    }
     setIsSaving(true);
     try {
       const allFiles = [...(card.files || []), ...newFiles];
@@ -97,6 +111,9 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
       setCard(c => ({ ...c, ...upd, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() }));
       setEditing(false);
       setNewFiles([]);
+      setPendingAssigneeId(null);
+      // Refrescar menciones tras guardar (puede haber nuevas en descripción)
+      apiGetMentions(card.id).then(setMentions).catch(() => {});
     } finally {
       setIsSaving(false);
     }
@@ -110,6 +127,8 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
     setCard(c => ({ ...c, comments: newComments, modifiedBy: me.fullName, modifiedAt: new Date().toISOString() }));
     setCommentText('');
     setCommentFiles([]);
+    // Refrescar menciones tras comentar (puede haber nuevas)
+    apiGetMentions(card.id).then(setMentions).catch(() => {});
   };
 
   const saveEditComment = () => {
@@ -173,8 +192,19 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
             {/* Description */}
             <div className="py-3.5 border-b border-border">
               <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">Descripción</div>
-              {editing ? <textarea className="w-full py-2 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none min-h-[80px] resize-y mt-1.5" value={desc} onChange={e => setDesc(e.target.value)} />
-                : <div className={`text-[13px] whitespace-pre-wrap leading-relaxed ${!card.description ? 'text-text-muted italic' : 'text-foreground'}`}>{card.description || 'Sin descripción'}</div>}
+              {editing
+                ? <MentionTextarea
+                    value={desc}
+                    onChange={setDesc}
+                    users={assignable}
+                    placeholder="Descripción del caso... Escribe @ para etiquetar a alguien"
+                    className="min-h-[80px] mt-1.5"
+                    minRows={3}
+                  />
+                : <div className={`text-[13px] whitespace-pre-wrap leading-relaxed ${!card.description ? 'text-text-muted italic' : 'text-foreground'}`}>
+                    {card.description ? renderWithMentions(card.description, users) : 'Sin descripción'}
+                  </div>
+              }
             </div>
 
             {/* Custom Fields */}
@@ -272,7 +302,13 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
                     </div>
                     {editCommentId === cmt.id ? (
                       <div>
-                        <textarea className="w-full py-2 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none min-h-[60px]" value={editCommentText} onChange={e => setEditCommentText(e.target.value)} />
+                        <MentionTextarea
+                          value={editCommentText}
+                          onChange={setEditCommentText}
+                          users={assignable}
+                          placeholder="Editar comentario... Escribe @ para etiquetar"
+                          minRows={2}
+                        />
                         <div className="mt-2"><FileUpload files={editCommentFiles} onAdd={f => setEditCommentFiles(p => [...p, f])} onRemove={id => setEditCommentFiles(p => p.filter(x => x.id !== id))} /></div>
                         <div className="flex gap-1.5 mt-2">
                           <button className="px-2.5 py-1 bg-surface-3 text-foreground border border-border rounded text-[11px] cursor-pointer" onClick={() => setEditCommentId(null)}>Cancelar</button>
@@ -281,7 +317,7 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
                       </div>
                     ) : (
                       <div>
-                        {cmt.text && <div className="text-[13px] text-text-secondary whitespace-pre-wrap leading-relaxed">{cmt.text}</div>}
+                        {cmt.text && <div className="text-[13px] text-text-secondary whitespace-pre-wrap leading-relaxed">{renderWithMentions(cmt.text, users)}</div>}
                         {cmt.files?.length > 0 && <div className="mt-2"><FileUpload files={cmt.files} disabled /></div>}
                         {cmt.modifiedBy && <div className="text-[10px] text-text-muted mt-1.5 italic">Editado por {cmt.modifiedBy} — {formatDate(cmt.modifiedAt)}</div>}
                       </div>
@@ -292,7 +328,14 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
               </div>
               {canEdit && !card.deleted && !card.closed && (
                 <div className="bg-surface-2 border border-border rounded-lg p-3.5 mt-3">
-                  <textarea className="w-full py-2 px-3 bg-surface-2 border border-border rounded-lg text-foreground text-[13px] outline-none min-h-[60px] mb-2" placeholder="Comentario..." value={commentText} onChange={e => setCommentText(e.target.value)} />
+                  <MentionTextarea
+                    value={commentText}
+                    onChange={setCommentText}
+                    users={assignable}
+                    placeholder="Comentario... Escribe @ para etiquetar a alguien"
+                    className="mb-2"
+                    minRows={2}
+                  />
                   <FileUpload files={commentFiles} onAdd={f => setCommentFiles(p => [...p, f])} onRemove={id => setCommentFiles(p => p.filter(x => x.id !== id))} />
                   <div className="mt-2 flex justify-end">
                     <button className="flex items-center gap-1 px-3 py-[7px] bg-primary text-primary-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-50"
@@ -342,6 +385,31 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
                 {!card.moveHistory?.length && <div className="text-text-muted italic">Sin movimientos previos.</div>}
               </div>
             </div>
+
+            {/* ── Otros Colaboradores ─────────────────────────────────── */}
+            <div className="border-t border-border pt-3 mt-3">
+              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                <Icons.users size={11} /> Otros Colaboradores
+              </div>
+              {mentions.length > 0 ? (
+                <div className="space-y-2">
+                  {mentions.map(m => (
+                    <div key={m.userId} className="flex items-start gap-2">
+                      <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">
+                        {getInitials(m.userName)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-semibold text-foreground leading-tight">{m.userName}</div>
+                        <div className="text-[10px] text-text-muted">{formatDate(m.firstMentionedAt)}</div>
+                        <div className="text-[10px] text-text-muted italic">por {m.mentionedByName}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-text-muted italic">Sin colaboradores etiquetados.</div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -349,6 +417,47 @@ const CardDetail: React.FC<CardDetailProps> = ({ card: initCard, board, users, m
           <button className="px-5 py-2.5 bg-surface-3 text-foreground border border-border rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-surface-4" onClick={onClose}>Cerrar</button>
         </div>
       </div>
+
+      {/* ── Diálogo de confirmación cambio de responsable ─────────── */}
+      {pendingAssigneeId !== null && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[200]" onClick={() => setPendingAssigneeId(null)}>
+          <div className="bg-card border border-border rounded-[12px] w-[380px] p-6 shadow-2xl fade-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3">
+              <Icons.users size={18} className="text-primary shrink-0" />
+              <div className="text-[15px] font-bold text-foreground">Cambiar responsable</div>
+            </div>
+            <p className="text-[13px] text-text-secondary mb-1">
+              ¿Confirmas asignar el caso <strong>{card.code}</strong> a:
+            </p>
+            <div className="flex items-center gap-2 my-3 px-3 py-2.5 bg-primary/10 rounded-lg">
+              <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[11px] font-bold shrink-0">
+                {getInitials(users.find(u => u.id === pendingAssigneeId)?.fullName || '?')}
+              </div>
+              <div>
+                <div className="text-[13px] font-semibold text-foreground">
+                  {users.find(u => u.id === pendingAssigneeId)?.fullName || 'Desconocido'}
+                </div>
+                <div className="text-[11px] text-text-muted">Se enviará un correo de notificación</div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4 justify-end">
+              <button
+                className="px-4 py-2 bg-surface-3 text-foreground border border-border rounded-lg text-[12px] font-semibold cursor-pointer hover:bg-surface-4"
+                onClick={() => { setAssigneeId(card.assigneeId || ''); setPendingAssigneeId(null); }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-60"
+                disabled={isSaving}
+                onClick={() => { setPendingAssigneeId(null); saveEdit(true); }}
+              >
+                {isSaving ? <><Icons.spinner size={12} className="animate-spin" /> Guardando...</> : <><Icons.check size={12} /> Confirmar y guardar</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

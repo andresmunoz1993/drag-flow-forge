@@ -2,6 +2,72 @@ import { Router, Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../db/index';
 import { comments, commentFiles, cards } from '../db/schema';
+import { sendEmail } from '../services/email.service';
+
+/**
+ * Copia local del helper processMentions para comentarios.
+ * Inserta en card_mentions y envía email solo a los recién etiquetados.
+ */
+async function processMentions(
+  cardId:          string,
+  text:            string,
+  mentionedById:   string,
+  mentionedByName: string,
+  cardCode:        string,
+  cardTitle:       string,
+  boardName:       string,
+): Promise<void> {
+  try {
+    if (!text?.trim()) return;
+
+    const usersRes = await pool.query<{ id: string; full_name: string; email: string }>(
+      `SELECT id, full_name, email FROM users WHERE active = true AND email != '' ORDER BY full_name`
+    );
+
+    const textLower = text.toLowerCase();
+    const toMention = usersRes.rows.filter(u =>
+      textLower.includes(`@${u.full_name.toLowerCase()}`)
+    );
+    if (!toMention.length) return;
+
+    const newlyMentioned: typeof toMention = [];
+    for (const u of toMention) {
+      const result = await pool.query(
+        `INSERT INTO card_mentions (card_id, user_id, mentioned_by_id, mentioned_by_name, context)
+         VALUES ($1, $2, $3, $4, 'comment')
+         ON CONFLICT (card_id, user_id) DO NOTHING
+         RETURNING id`,
+        [cardId, u.id, mentionedById, mentionedByName]
+      );
+      if (result.rowCount && result.rowCount > 0) newlyMentioned.push(u);
+    }
+
+    if (!newlyMentioned.length) return;
+
+    const textSnippet = text.length > 200 ? text.slice(0, 200) + '…' : text;
+    for (const u of newlyMentioned) {
+      await sendEmail({
+        to:       u.email,
+        subject:  `[Allers] Te han etiquetado en el caso ${cardCode}`,
+        bodyType: 'HTML',
+        body: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#2563eb;margin-top:0">📌 Has sido etiquetado en un caso</h2>
+            <p><strong>${mentionedByName}</strong> te mencionó en el caso
+               <strong>${cardCode} — ${cardTitle}</strong> (${boardName}).</p>
+            <div style="background:#f3f4f6;border-left:3px solid #2563eb;padding:12px 16px;border-radius:4px;margin:16px 0">
+              <p style="margin:0;color:#374151;font-size:14px;font-style:italic">"${textSnippet}"</p>
+            </div>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+            <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+          </div>
+        `,
+      });
+    }
+  } catch (err) {
+    console.warn('[Mentions] No se pudo procesar menciones en comentario:', (err as Error)?.message);
+  }
+}
 
 const router = Router({ mergeParams: true });
 
@@ -56,6 +122,21 @@ router.post('/', async (req: Request, res: Response) => {
     await client.query('COMMIT');
 
     const serialized = await serializeComment(commentId);
+
+    // Procesar @menciones en el comentario (fire-and-forget)
+    if (text?.trim()) {
+      const cardInfoRes = await pool.query<{ code: string; title: string; board_name: string }>(
+        `SELECT c.code, c.title, b.name AS board_name
+         FROM cards c JOIN boards b ON b.id = c.board_id
+         WHERE c.id = $1`,
+        [cardId]
+      );
+      if (cardInfoRes.rows.length) {
+        const { code, title, board_name } = cardInfoRes.rows[0];
+        processMentions(cardId, text, authorId ?? '', authorName ?? '', code, title, board_name);
+      }
+    }
+
     return res.status(201).json(serialized);
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -101,6 +182,23 @@ router.put('/:id', async (req: Request, res: Response) => {
     await client.query('COMMIT');
 
     const serialized = await serializeComment(id);
+
+    // Procesar @menciones nuevas en el texto editado (fire-and-forget)
+    if (text?.trim()) {
+      const cmtCardRes = await pool.query<{ card_id: string; code: string; title: string; board_name: string }>(
+        `SELECT cm.card_id, c.code, c.title, b.name AS board_name
+         FROM comments cm
+         JOIN cards c ON c.id = cm.card_id
+         JOIN boards b ON b.id = c.board_id
+         WHERE cm.id = $1`,
+        [id]
+      );
+      if (cmtCardRes.rows.length) {
+        const { card_id, code, title, board_name } = cmtCardRes.rows[0];
+        processMentions(card_id, text, modifiedBy ?? '', modifiedBy ?? '', code, title, board_name);
+      }
+    }
+
     return res.json(serialized);
   } catch (err: any) {
     await client.query('ROLLBACK');

@@ -5,6 +5,13 @@ import { boards, columns, customFields, cards, userBoardRoles } from '../db/sche
 
 const router = Router();
 
+/** Elimina la contraseña SAP del objeto de config antes de enviarlo al cliente */
+function stripSapPassword(sap: unknown): unknown {
+  if (!sap || typeof sap !== 'object') return sap;
+  const { password: _pw, ...rest } = sap as Record<string, unknown>;
+  return { ...rest, password: '' };
+}
+
 // Serializa un board con sus columns y customFields
 async function serializeBoard(board: typeof boards.$inferSelect) {
   const cols = await db.select().from(columns)
@@ -20,7 +27,7 @@ async function serializeBoard(board: typeof boards.$inferSelect) {
     prefix:       board.prefix,
     nextNum:      board.nextNum,
     createdAt:    board.createdAt,
-    sap:          board.sapConfig ?? undefined,
+    sap:          board.sapConfig ? stripSapPassword(board.sapConfig) : undefined,
     spAutoImport: board.spAutoImport ?? undefined,
     landing:      board.landing ?? undefined,
     columns: cols.map(c => ({
@@ -73,7 +80,7 @@ router.get('/', async (_req: Request, res: Response) => {
       prefix:       board.prefix,
       nextNum:      board.nextNum,
       createdAt:    board.createdAt,
-      sap:          board.sapConfig ?? undefined,
+      sap:          board.sapConfig ? stripSapPassword(board.sapConfig) : undefined,
       spAutoImport: board.spAutoImport ?? undefined,
       landing:      board.landing ?? undefined,
       columns: (colsMap.get(board.id) || []).map(c => ({
@@ -123,9 +130,22 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (name          !== undefined) upd.name         = name;
     if (prefix        !== undefined) upd.prefix        = prefix.toUpperCase();
     if (nextNum       !== undefined) upd.nextNum       = nextNum;
-    if (sap           !== undefined) upd.sapConfig     = sap ?? null;
     if (spAutoImport  !== undefined) upd.spAutoImport  = spAutoImport ?? null;
     if (landing       !== undefined) upd.landing       = landing ?? null;
+
+    if (sap !== undefined) {
+      if (sap === null) {
+        upd.sapConfig = null; // desactivar SAP
+      } else {
+        // Si la contraseña llega vacía, conservar la que ya está en DB
+        let finalSap = { ...sap };
+        if (!finalSap.password) {
+          const [existing] = await db.select({ sapConfig: boards.sapConfig }).from(boards).where(eq(boards.id, id));
+          finalSap.password = (existing?.sapConfig as any)?.password ?? '';
+        }
+        upd.sapConfig = finalSap;
+      }
+    }
 
     const [updated] = await db.update(boards).set(upd).where(eq(boards.id, id)).returning();
     if (!updated) return res.status(404).json({ error: 'Tablero no encontrado.' });

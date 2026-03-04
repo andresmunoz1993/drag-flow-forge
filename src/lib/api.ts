@@ -164,6 +164,19 @@ export const apiGetSpRecords = (boardId: string, spName: string): Promise<{ reco
 export const apiSearchSap = (boardId: string, docNumber: string): Promise<import('@/types').SapOrderResult> =>
   POST('/api/sap/search', { boardId, docNumber });
 
+// ─── Reportes ─────────────────────────────────────────────────────────────────
+
+export const apiGetReports = (): Promise<import('@/types').ReportDefinition[]> =>
+  GET('/api/reports');
+
+export const apiRunReport = (reportId: string, params: Record<string, string>): Promise<import('@/types').ReportResult> =>
+  POST(`/api/reports/${reportId}/run`, params);
+
+// ─── Menciones ────────────────────────────────────────────────────────────────
+
+export const apiGetMentions = (cardId: string): Promise<import('@/types').CardMention[]> =>
+  GET(`/api/cards/${cardId}/mentions`);
+
 // ─── Documentos SFTP ──────────────────────────────────────────────────────────
 
 export const apiGetDocumentos = (cardId: string): Promise<import('@/types').ClientDocument[]> =>

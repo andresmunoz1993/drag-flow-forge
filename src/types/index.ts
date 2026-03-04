@@ -152,6 +152,43 @@ export interface Card {
   clientRef?: string;
 }
 
+// ─── Reportes ─────────────────────────────────────────────────────────────────
+
+export interface ReportParam {
+  name:         string;
+  label:        string;
+  type:         'date' | 'text' | 'number' | 'select';
+  required?:    boolean;
+  options?:     string[];
+  default?:     string;
+  placeholder?: string;
+}
+
+export interface ReportDefinition {
+  id:          string;
+  name:        string;
+  description: string;
+  params:      ReportParam[];
+}
+
+export interface ReportResult {
+  columns: string[];
+  rows:    Record<string, unknown>[];
+  total:   number;
+}
+
+// ─── Menciones ────────────────────────────────────────────────────────────────
+
+/** Colaborador etiquetado con @mención en un caso. */
+export interface CardMention {
+  userId:           string;
+  userName:         string;
+  userEmail:        string;
+  mentionedByName:  string;
+  firstMentionedAt: string;
+  context:          'description' | 'comment';
+}
+
 /** Documento sincronizado desde SFTP, vinculado a un caso por clientRef. */
 export interface ClientDocument {
   id: number;
