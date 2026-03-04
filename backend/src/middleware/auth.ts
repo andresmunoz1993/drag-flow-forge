@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'allers-internal-jwt-secret';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET no está definido en las variables de entorno. Configúralo en .env');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export interface AuthPayload {
   userId: string;

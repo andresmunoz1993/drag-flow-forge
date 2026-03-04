@@ -35,27 +35,69 @@ export interface ReportDefinition {
  * IMPORTANTE: El orden de los parámetros en `params` debe coincidir con
  * el orden de los argumentos de la función PostgreSQL.
  */
+/**
+ * ────────────────────────────────────────────────────────────────────────────
+ * FUNCIONES POSTGRESQL REQUERIDAS
+ * Ejecutar en la DB antes de usar los reportes:
+ *
+ * psql -d allers -f backend/src/db/reports-functions.sql
+ * ────────────────────────────────────────────────────────────────────────────
+ */
 export const REPORTS: ReportDefinition[] = [
-  // ── Ejemplo (descomentar y ajustar) ────────────────────────────────────────
-  // {
-  //   id: 'casos_por_mes',
-  //   name: 'Casos Creados por Mes',
-  //   description: 'Cantidad de casos creados agrupados por mes en el período seleccionado.',
-  //   spName: 'rpt_casos_por_mes',
-  //   params: [
-  //     { name: 'p_start', label: 'Fecha inicio', type: 'date', required: true },
-  //     { name: 'p_end',   label: 'Fecha fin',    type: 'date', required: true },
-  //   ]
-  // },
-  // {
-  //   id: 'tiempo_por_responsable',
-  //   name: 'Tiempo de Atención por Responsable',
-  //   description: 'Tiempo promedio de cierre de casos agrupado por responsable.',
-  //   spName: 'rpt_tiempo_responsable',
-  //   params: [
-  //     { name: 'p_board_id', label: 'Tablero', type: 'text', placeholder: 'UUID del tablero' },
-  //     { name: 'p_start',    label: 'Desde',   type: 'date', required: true },
-  //     { name: 'p_end',      label: 'Hasta',   type: 'date', required: true },
-  //   ]
-  // },
+  {
+    id: 'casos_por_tablero',
+    name: 'Casos por Tablero y Carril',
+    description: 'Distribución actual de casos activos agrupados por tablero y carril. Útil para ver la carga de trabajo.',
+    spName: 'rpt_casos_por_tablero',
+    params: [
+      { name: 'p_start', label: 'Desde (creación)', type: 'date', placeholder: 'Dejar vacío para todos' },
+      { name: 'p_end',   label: 'Hasta (creación)', type: 'date', placeholder: 'Dejar vacío para todos' },
+    ],
+  },
+  {
+    id: 'tiempo_resolucion',
+    name: 'Tiempo Promedio de Resolución',
+    description: 'Horas promedio que tarda en cerrarse un caso, agrupado por tablero. Solo cuenta casos cerrados.',
+    spName: 'rpt_tiempo_resolucion',
+    params: [
+      { name: 'p_start', label: 'Desde (cierre)', type: 'date', placeholder: 'Dejar vacío para todos' },
+      { name: 'p_end',   label: 'Hasta (cierre)', type: 'date', placeholder: 'Dejar vacío para todos' },
+    ],
+  },
+  {
+    id: 'casos_por_dia',
+    name: 'Casos Creados por Día',
+    description: 'Evolución diaria de casos creados en el período. Útil para detectar picos de demanda.',
+    spName: 'rpt_casos_por_dia',
+    params: [
+      {
+        name: 'p_start',
+        label: 'Desde',
+        type: 'date',
+        required: true,
+        default: (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 30);
+          return d.toISOString().split('T')[0];
+        })(),
+      },
+      {
+        name: 'p_end',
+        label: 'Hasta',
+        type: 'date',
+        required: true,
+        default: new Date().toISOString().split('T')[0],
+      },
+    ],
+  },
+  {
+    id: 'productividad_usuario',
+    name: 'Productividad por Usuario',
+    description: 'Casos asignados, cerrados y comentarios por usuario activo en el período seleccionado.',
+    spName: 'rpt_productividad_usuario',
+    params: [
+      { name: 'p_start', label: 'Desde', type: 'date', placeholder: 'Dejar vacío para todos' },
+      { name: 'p_end',   label: 'Hasta', type: 'date', placeholder: 'Dejar vacío para todos' },
+    ],
+  },
 ];

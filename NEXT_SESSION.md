@@ -7,7 +7,7 @@ Objetivo operativo: **50 usuarios concurrentes, 1 000 transacciones diarias**.
 ## Stack completo
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind + shadcn/ui, puerto 8080
 - **Backend**: Express + TypeScript (ts-node-dev), puerto 3001
-- **DB**: PostgreSQL, base `allers`, usuario `postgres`, contraseña `allers123`
+- **DB**: PostgreSQL, base `allers`, usuario `postgres`, contraseña `allers123` (cambiar en producción)
 - **Auth**: JWT 7 días, token en localStorage como `auth_token`
 - **ORM**: Drizzle ORM (`drizzle-orm/node-postgres`)
 
@@ -26,15 +26,28 @@ npm run dev
 
 ## Lo que ya está hecho (no tocar)
 
-### Infraestructura y seguridad
+### Seguridad (implementado en sesión 2026-03-04)
+- ✅ **JWT_SECRET obligatorio** — el servidor no arranca sin esta variable; sin fallback hardcoded
+- ✅ **helmet** instalado y configurado (headers de seguridad HTTP)
+- ✅ **express-rate-limit**: login máx 20/15min, API general máx 300/min
+- ✅ **Validación spName en reports.routes.ts** — regex `[a-zA-Z_][a-zA-Z0-9_]*` al arrancar
 - ✅ Login JWT + auto-logout en 401 + sesión restaurada con `/api/auth/me`
 - ✅ Middleware `requireAuth` protege rutas sensibles
-- ✅ Rutas públicas para landing pages (boards GET, cards GET/POST, sap POST)
 - ✅ Contraseñas nunca retornadas en respuestas de API
 - ✅ SAP password oculto en GET; preservado en PUT cuando se envía string vacío
 - ✅ CORS con `credentials: true`, JSON body limit 10MB
 - ✅ Proxy Vite `/api → localhost:3001` — sin CORS en desarrollo
 - ✅ Retry logic en api.ts: 3 intentos con backoff 500ms×n
+- ✅ `detail: err.message` oculto en producción (`NODE_ENV !== 'production'`)
+- ✅ `isUUID()` en todas las rutas: cards PUT, boards PUT, comments POST/PUT
+
+### Infraestructura de producción (implementado en sesión 2026-03-04)
+- ✅ **`ecosystem.config.js`** — PM2 con 2 instancias en modo cluster, auto-restart en 500MB
+- ✅ **`migrate-all.ts`** — runner consolidado e idempotente de todas las migraciones
+- ✅ **`backend/.env.example`** — plantilla con todas las variables documentadas
+- ✅ **`.env.production`** — para VITE_BACKEND_URL en build de producción
+- ✅ **`backend/src/db/reports-functions.sql`** — 4 funciones PostgreSQL listas para ejecutar
+- ✅ Build backend: `tsc` → `dist/`; scripts `build` y `start` en backend/package.json
 
 ### Rendimiento
 - ✅ Contador atómico con `ISOLATION LEVEL SERIALIZABLE`
@@ -49,14 +62,8 @@ npm run dev
 ### UX y estabilidad
 - ✅ ErrorBoundary global (`src/components/ErrorBoundary.tsx`)
 - ✅ Loading state en CardDetail — spinner en "Guardar", bloquea doble-submit
-- ✅ Memory leak en DocumentViewer corregido
-- ✅ Health check `GET /api/health` con ping a DB
+- ✅ Health check `GET /api/health` con ping a DB + uptime
 - ✅ Botón "Sync SFTP" en header (solo admin), feedback de resultado
-
-### Validación de inputs y logs (backend)
-- ✅ `isUUID()` en todas las rutas: cards PUT, boards PUT, comments POST/PUT
-- ✅ Validación de title, text, name, prefix con límites de caracteres
-- ✅ `detail: err.message` oculto en producción (`NODE_ENV !== 'production'`)
 
 ### Módulos de integración
 - ✅ SFTP Sync + DocumentViewer (PDFs vinculados por `client_ref`)
@@ -86,32 +93,62 @@ npm run dev
 - ✅ BOM UTF-8, columnas: Código, Tablero, Título, Carril, Responsable, Informador, Creado, Estado
 
 ### Sección de Reportes
-- ✅ `backend/src/config/reports.config.ts` — definiciones de reportes, apuntan a funciones PostgreSQL
+- ✅ `backend/src/config/reports.config.ts` — 4 reportes configurados (casos/tablero, tiempo resolución, por día, productividad)
+- ✅ `backend/src/db/reports-functions.sql` — funciones PostgreSQL correspondientes (ejecutar en DB)
 - ✅ `GET /api/reports` — lista metadatos; `POST /api/reports/:id/run` — ejecuta la función y devuelve filas
 - ✅ `Reports.tsx`: grid de reportes → modal de filtros → tabla de resultados paginada + "Exportar CSV"
-- ✅ Enlace "Reportes" en sidebar, visible para todos los usuarios logueados
 
 ---
 
-## Tareas pendientes (ordenadas por impacto)
+## Tareas pendientes para lanzamiento a producción
 
-### Prioridad ALTA
-1. **Agregar reportes reales a `reports.config.ts`**
-   - Crear funciones en PostgreSQL (`CREATE OR REPLACE FUNCTION rpt_xxx(...)`)
-   - Agregar las entradas en `backend/src/config/reports.config.ts`
-   - Ejemplo de función: `SELECT * FROM rpt_casos_por_mes(p_start DATE, p_end DATE)`
+### CRÍTICO — Hacer en el servidor de producción (no en código)
+1. **Rotar AZURE_CLIENT_SECRET** en Azure Portal → App Registrations → Certificates & secrets
+2. **Cambiar contraseña de PostgreSQL** (`ALTER USER postgres PASSWORD 'nueva_contraseña'`)
+3. **Crear usuario DB dedicado**: `CREATE USER allers_app WITH PASSWORD '...'; GRANT ALL ON DATABASE allers TO allers_app;`
+4. **Configurar backups automáticos** con `pg_dump`:
+   ```sh
+   # crontab -e  (Linux) o Task Scheduler (Windows)
+   0 2 * * * pg_dump -Fc allers > /backups/allers_$(date +%Y%m%d).dump
+   ```
 
-### Prioridad MEDIA
-2. **Dashboard de métricas**
-   - Casos por estado (abierto/cerrado) por tablero
-   - Tiempo promedio de resolución (closedAt - createdAt)
-   - Casos creados por día (últimos 30 días)
-   - Agregar gráficos simples con `recharts` (ya instalado)
+### ALTA — En servidor
+5. **Instalar PM2** y arrancar con: `pm2 start ecosystem.config.js --env production`
+6. **Configurar servidor web** (IIS o nginx) para:
+   - Servir frontend desde `dist/`
+   - Proxy `/api/*` → `localhost:3001`
+   - HTTPS con certificado
+7. **Configurar CORS_ORIGIN** en `backend/.env` con la URL exacta del frontend
+8. **Ejecutar funciones SQL** de reportes: `psql -d allers -f backend/src/db/reports-functions.sql`
+9. **Ejecutar migraciones**: `cd backend && npx ts-node src/db/migrate-all.ts`
+10. **Monitoreo externo**: configurar ping a `/api/health` cada 5 min (UptimeRobot, etc.)
 
-### Prioridad BAJA
-3. **Virtualización en Kanban** (`@tanstack/react-virtual`)
-   - Para tableros con >500 tarjetas activas
-   - Actualmente el renderizado es completo por columna
+### MEDIA — Próximas sesiones de código
+- Dashboard de métricas con gráficos `recharts` (casos por estado, tiempo resolución, tendencia diaria)
+- Logging estructurado con `winston` (JSON en producción)
+- Virtualización en Kanban con `@tanstack/react-virtual` (para tableros con >500 tarjetas)
+
+---
+
+## Proceso de deploy (resumen)
+
+```sh
+# 1. Build frontend
+npm run build          # genera dist/ en raíz
+
+# 2. Build backend
+cd backend
+npm run build          # genera backend/dist/
+
+# 3. Arrancar con PM2 (en servidor)
+cd ..
+pm2 start ecosystem.config.js --env production
+pm2 save               # persistir tras reinicio
+
+# 4. Verificar
+curl https://TU_DOMINIO/api/health
+# → {"ok":true,"db":"connected","uptime":...}
+```
 
 ---
 
@@ -119,21 +156,18 @@ npm run dev
 | Archivo | Propósito |
 |---------|-----------|
 | `src/pages/Index.tsx` | Controlador principal (~840 líneas) |
-| `src/lib/api.ts` | Cliente HTTP centralizado (proxy Vite, retry, JWT) |
-| `src/components/Kanban.tsx` | Tablero + KanbanCard memoizado |
-| `src/components/CaseList.tsx` | Lista paginada + filtros + export CSV |
-| `src/components/CardDetail.tsx` | Detalle de caso (loading, confirmación responsable, menciones) |
-| `src/components/MentionTextarea.tsx` | Textarea @autocomplete + renderWithMentions |
+| `src/lib/api.ts` | Cliente HTTP centralizado (proxy Vite, retry, JWT, VITE_BACKEND_URL) |
 | `src/components/Reports.tsx` | Sección de reportes completa |
-| `backend/src/index.ts` | Express app + routes + health check |
-| `backend/src/middleware/auth.ts` | Middleware JWT: `requireAuth` |
+| `backend/src/index.ts` | Express app + helmet + rate-limit + routes + health check |
+| `backend/src/middleware/auth.ts` | Middleware JWT: `requireAuth` (sin fallback) |
 | `backend/src/routes/cards.routes.ts` | Queries batch, SERIALIZABLE, notificaciones email |
-| `backend/src/routes/users.routes.ts` | CRUD usuarios + emails de bienvenida/contraseña |
-| `backend/src/routes/reports.routes.ts` | GET lista + POST run SP |
-| `backend/src/config/reports.config.ts` | Definiciones de reportes (editar para agregar) |
-| `backend/src/routes/sp.routes.ts` | Integración SharePoint |
+| `backend/src/config/reports.config.ts` | Definiciones de reportes (4 configurados) |
+| `backend/src/db/migrate-all.ts` | Runner consolidado de todas las migraciones |
+| `backend/src/db/reports-functions.sql` | Funciones PostgreSQL de los 4 reportes |
+| `backend/.env.example` | Plantilla de todas las variables de entorno |
+| `ecosystem.config.js` | Configuración PM2 (2 instancias cluster) |
 
-## Verificación rápida
+## Verificación rápida de desarrollo
 ```sh
 curl http://localhost:3001/api/health
 # → {"ok":true,"db":"connected","uptime":123}
@@ -142,35 +176,15 @@ curl -s http://localhost:3001/api/auth/login \
   -X POST -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}' | jq '{token:.token, user:.username}'
 
-curl -s http://localhost:3001/api/users | jq .error
-# → "Token requerido."
-
-# Listar reportes (con token)
+# Listar reportes configurados (con token)
 curl -s http://localhost:3001/api/reports \
-  -H "Authorization: Bearer <TOKEN>" | jq .
-# → [] si aún no hay reportes configurados
-```
+  -H "Authorization: Bearer <TOKEN>" | jq '.[].name'
+# → "Casos por Tablero y Carril", "Tiempo Promedio de Resolución", etc.
 
-## Migración pendiente (si no se ha corrido)
-```sh
-# Tabla card_mentions (ya debería estar)
-cd "C:\Proyectos\Nuevo Jira\drag-flow-forge\backend"
-node -e "
-require('dotenv').config();
-const { Pool } = require('pg');
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-pool.query(\`
-  CREATE TABLE IF NOT EXISTS card_mentions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    card_id UUID NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    mentioned_by_id TEXT NOT NULL DEFAULT '',
-    mentioned_by_name TEXT NOT NULL DEFAULT '',
-    first_mentioned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    context TEXT NOT NULL DEFAULT 'description',
-    UNIQUE (card_id, user_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_card_mentions_card_id ON card_mentions(card_id);
-\`).then(() => { console.log('OK'); pool.end(); }).catch(e => { console.error(e.message); pool.end(); });
-"
+# Rate limiting funcionando
+for i in $(seq 1 25); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3001/api/auth/login \
+    -H "Content-Type: application/json" -d '{"username":"x","password":"x"}';
+done
+# → primeros 20: 401, del 21 en adelante: 429
 ```

@@ -11,6 +11,14 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/index';
 import { REPORTS } from '../config/reports.config';
 
+// ── Validación de seguridad al arrancar ───────────────────────────────────────
+// Previene inyección SQL si alguien edita manualmente reports.config.ts con un spName malicioso.
+REPORTS.forEach(r => {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(r.spName)) {
+    throw new Error(`[reports] Nombre de función PostgreSQL inválido: "${r.spName}". Solo se permiten letras, números y guiones bajos.`);
+  }
+});
+
 const router = Router();
 
 // GET /api/reports — lista los reportes disponibles (metadatos, sin ejecutar)

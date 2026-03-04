@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { requireAuth } from "./middleware/auth";
 import { pool } from "./db/index";
 
@@ -23,7 +25,10 @@ import reportsRouter       from "./routes/reports.routes";
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-// Middleware
+// ── Seguridad HTTP headers ────────────────────────────────────────────────────
+app.use(helmet());
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN ?? "http://localhost:8080",
@@ -33,6 +38,30 @@ app.use(
   })
 );
 app.use(express.json({ limit: "10mb" }));
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Login: máx 20 intentos por 15 min (protección brute-force)
+app.use(
+  "/api/auth/login",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { error: "Demasiados intentos de login. Espera 15 minutos." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+// API general: máx 300 req/min por IP (ajustado para 50 usuarios activos)
+app.use(
+  "/api/",
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    message: { error: "Límite de peticiones excedido. Intenta en un momento." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
 
 // ── Rutas públicas ────────────────────────────────────────────────────────────
 app.use("/api/auth",   authRouter);      // login y /me tienen su propia lógica JWT

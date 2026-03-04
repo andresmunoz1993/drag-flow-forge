@@ -7,7 +7,10 @@ import { users, userBoardRoles } from '../db/schema';
 
 const router = Router();
 
-const JWT_SECRET  = process.env.JWT_SECRET || 'allers-internal-jwt-secret';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET no está definido en las variables de entorno. Configúralo en .env');
+}
+const JWT_SECRET  = process.env.JWT_SECRET;
 const JWT_EXPIRES = '7d'; // 7 días — app interna, sesión larga
 
 // Helper: serializar usuario + roles
