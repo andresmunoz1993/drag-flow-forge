@@ -23,6 +23,7 @@ import CardDetail from '@/components/CardDetail';
 import CaseList from '@/components/CaseList';
 import CustomFieldList, { FieldForm } from '@/components/CustomFieldList';
 import EmbeddedLandingForm from '@/components/EmbeddedLandingForm';
+import Reports from '@/components/Reports';
 import Confirm from '@/components/Confirm';
 
 const Index = () => {
@@ -594,6 +595,7 @@ const Index = () => {
     : page === 'boards'  ? 'Tableros'
     : page === 'fields'  ? 'Campos Personalizados'
     : page === 'cases'   ? 'Todos los Casos'
+    : page === 'reports' ? 'Reportes'
     : page.startsWith('board-') ? boards.find(b => 'board-' + b.id === page)?.name || ''
     : page.startsWith('form-')  ? (boards.find(b => 'form-' + b.id === page)?.name || 'Formulario')
     : '';
@@ -615,6 +617,8 @@ const Index = () => {
             onClick={() => setPage('dashboard')}><Icons.home size={16} /><span>Inicio</span></div>
           <div className={`flex items-center gap-2.5 py-[9px] px-3 rounded-lg text-[13px] cursor-pointer select-none transition-all ${page === 'cases' ? 'bg-primary/10 text-primary' : 'text-text-secondary hover:bg-surface-3 hover:text-foreground'}`}
             onClick={() => setPage('cases')}><Icons.list size={16} /><span>Todos los Casos</span></div>
+          <div className={`flex items-center gap-2.5 py-[9px] px-3 rounded-lg text-[13px] cursor-pointer select-none transition-all ${page === 'reports' ? 'bg-primary/10 text-primary' : 'text-text-secondary hover:bg-surface-3 hover:text-foreground'}`}
+            onClick={() => setPage('reports')}><Icons.reports size={16} /><span>Reportes</span></div>
 
           {isAdmin && (
             <>
@@ -692,7 +696,8 @@ const Index = () => {
           {page === 'dashboard' && <Dashboard users={users} boards={boards} cards={cards} />}
           {page === 'users'  && isAdmin && <UserList users={users} me={me} boards={boards} onEdit={u => setEditUser(u)} onDelete={u => setConfirmDeleteUser(u)} onCreate={() => setShowCreateUser(true)} />}
           {page === 'boards' && isAdmin && <BoardManagement boards={boards} cards={cards} users={users} me={me} onCreate={() => setShowCreateBoard(true)} onEdit={b => setEditBoard(b)} onDelete={b => setConfirmDeleteBoard(b)} onColumns={b => setManageCols(b)} onCustomFields={b => setManageCF(b)} onLanding={b => setManageLanding(b)} onSap={b => setManageSap(b)} onSpAutoImport={b => setManageSpAutoImport(b)} />}
-          {page === 'cases'  && <CaseList cards={visibleCards} boards={boards} users={users} onCardClick={c => setViewCard(c)} />}
+          {page === 'cases'   && <CaseList cards={visibleCards} boards={boards} users={users} onCardClick={c => setViewCard(c)} />}
+          {page === 'reports' && <Reports />}
           {page === 'fields' && isAdmin && <CustomFieldList boards={boards} onAdd={() => setShowFieldForm(true)} onEdit={f => setEditField(f)} onDelete={f => setConfirmDeleteField(f)} />}
           {page.startsWith('board-') && (() => {
             const b = boards.find(x => 'board-' + x.id === page);

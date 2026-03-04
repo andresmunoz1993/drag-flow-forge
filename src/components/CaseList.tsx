@@ -3,6 +3,34 @@ import type { Board, Card, User } from '@/types';
 import { Icons } from './Icons';
 import { formatShortDate } from '@/lib/storage';
 
+/** Escapa un valor para CSV: envuelve en comillas dobles y escapa comillas internas. */
+function csvCell(v: string | number | null | undefined): string {
+  const s = String(v ?? '');
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function exportToCSV(cards: Card[], boards: Board[], users: User[]) {
+  const header = ['Código', 'Tablero', 'Título', 'Carril', 'Responsable', 'Informador', 'Creado', 'Estado'];
+  const rows = cards.map(c => {
+    const b   = boards.find(x => x.id === c.boardId);
+    const col = b?.columns.find(x => x.id === c.columnId);
+    const a   = users.find(u => u.id === c.assigneeId);
+    const estado = c.closed ? 'Cerrado' : c.deleted ? 'Eliminado' : 'Abierto';
+    return [c.code, b?.name ?? '', c.title, col?.name ?? '', a?.fullName ?? '', c.reporterName, formatShortDate(c.createdAt), estado]
+      .map(csvCell).join(',');
+  });
+  const csv  = [header.map(csvCell).join(','), ...rows].join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `casos_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 interface CaseListProps {
   cards: Card[];
   boards: Board[];
@@ -57,6 +85,14 @@ const CaseList: React.FC<CaseListProps> = ({ cards, boards, users, onCardClick }
         </select>
         <div className="flex-1" />
         <span className="text-[12px] text-text-muted">{filtered.length} casos</span>
+        <button
+          className="flex items-center gap-1.5 px-3 py-2 bg-surface-3 border border-border rounded-lg text-[12px] font-semibold text-foreground cursor-pointer hover:bg-surface-4 disabled:opacity-40"
+          onClick={() => exportToCSV(filtered, boards, users)}
+          disabled={filtered.length === 0}
+          title="Exportar casos visibles a CSV"
+        >
+          <Icons.dl size={13} /> Exportar CSV
+        </button>
       </div>
 
       <div className="bg-card border border-border rounded-[10px] overflow-hidden">
