@@ -18,6 +18,7 @@ import customFieldsRouter  from "./routes/custom-fields.routes";
 import counterRouter       from "./routes/counter.routes";
 import documentosRouter    from "./routes/documentos.routes";
 import sapProxyRouter      from "./routes/sap-proxy.routes";
+import reportsRouter       from "./routes/reports.routes";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -48,8 +49,9 @@ app.use("/api/counter",       requireAuth, counterRouter);
 app.use("/api/documentos",    requireAuth, documentosRouter);
 
 // ── Rutas existentes (email, SharePoint) ─────────────────────────────────────
-app.use("/api/email", requireAuth, emailRouter);
-app.use("/api/sp",    requireAuth, spRouter);
+app.use("/api/email",   requireAuth, emailRouter);
+app.use("/api/sp",      requireAuth, spRouter);
+app.use("/api/reports", requireAuth, reportsRouter);
 
 // Root info
 app.get("/", (_req, res) => {
