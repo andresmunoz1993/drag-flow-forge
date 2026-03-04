@@ -3,6 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index';
 import { users, userBoardRoles } from '../db/schema';
+import { sendEmail } from '../services/email.service';
 
 const router = Router();
 
@@ -88,6 +89,29 @@ router.post('/', async (req: Request, res: Response) => {
       if (roleRows.length) await db.insert(userBoardRoles).values(roleRows);
     }
 
+    // Enviar correo de bienvenida con credenciales (fire-and-forget)
+    if (newUser.email) {
+      sendEmail({
+        to:       newUser.email,
+        subject:  '[Allers] Tu cuenta ha sido creada',
+        bodyType: 'HTML',
+        body: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#2563eb;margin-top:0">👤 Bienvenido a Allers</h2>
+            <p>Hola <strong>${newUser.fullName}</strong>,</p>
+            <p>Tu cuenta ha sido creada exitosamente. Aquí están tus credenciales de acceso:</p>
+            <div style="background:#f3f4f6;border-left:3px solid #2563eb;padding:12px 16px;border-radius:4px;margin:16px 0">
+              <p style="margin:0 0 6px;color:#374151;font-size:14px"><strong>Usuario:</strong> ${newUser.username}</p>
+              <p style="margin:0;color:#374151;font-size:14px"><strong>Contraseña:</strong> ${password}</p>
+            </div>
+            <p style="color:#6b7280;font-size:13px">Por seguridad, te recomendamos cambiar tu contraseña al iniciar sesión.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+            <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+          </div>
+        `,
+      }).catch(err => console.warn('[UserEmail] No se pudo enviar correo de bienvenida:', (err as Error)?.message));
+    }
+
     return res.status(201).json(await serializeUser(newUser));
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al crear usuario.', detail: err.message });
@@ -118,6 +142,29 @@ router.put('/:id', async (req: Request, res: Response) => {
         userId: id, boardId, role: role as any,
       }));
       if (roleRows.length) await db.insert(userBoardRoles).values(roleRows);
+    }
+
+    // Notificar cambio de contraseña si aplica (fire-and-forget)
+    if (password !== undefined && updated.email) {
+      sendEmail({
+        to:       updated.email,
+        subject:  '[Allers] Tu contraseña ha sido modificada',
+        bodyType: 'HTML',
+        body: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+            <h2 style="color:#2563eb;margin-top:0">🔑 Cambio de contraseña</h2>
+            <p>Hola <strong>${updated.fullName}</strong>,</p>
+            <p>La contraseña de tu cuenta ha sido actualizada.</p>
+            <div style="background:#f3f4f6;border-left:3px solid #2563eb;padding:12px 16px;border-radius:4px;margin:16px 0">
+              <p style="margin:0 0 6px;color:#374151;font-size:14px"><strong>Usuario:</strong> ${updated.username}</p>
+              <p style="margin:0;color:#374151;font-size:14px"><strong>Nueva contraseña:</strong> ${password}</p>
+            </div>
+            <p style="color:#dc2626;font-size:13px">Si no solicitaste este cambio, contacta al administrador inmediatamente.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
+            <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
+          </div>
+        `,
+      }).catch(err => console.warn('[UserEmail] No se pudo enviar correo de contraseña:', (err as Error)?.message));
     }
 
     return res.json(await serializeUser(updated));
