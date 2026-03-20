@@ -28,3 +28,4 @@ backend/node_modules
 backend/dist
 backend/.env
 datos generales de conexión a corre.txt
+datoscorreo.env
