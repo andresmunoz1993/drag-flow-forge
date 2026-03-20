@@ -203,9 +203,9 @@ const Index = () => {
   const deleteUser = async () => {
     if (!confirmDeleteUser) return;
     try {
-      await apiDeleteUser(confirmDeleteUser.id);
-      setUsers(p => p.filter(u => u.id !== confirmDeleteUser.id));
-      fb('Eliminado');
+      const updated = await apiDeleteUser(confirmDeleteUser.id);
+      setUsers(p => p.map(u => u.id === updated.id ? updated : u));
+      fb('Usuario desactivado');
       setConfirmDeleteUser(null);
     } catch (err) { fbErr(errMsg(err)); }
   };
@@ -716,7 +716,7 @@ const Index = () => {
       {/* Modals */}
       {(showCreateUser || editUser) && <UserForm user={editUser} onSave={saveUser} onClose={() => { setEditUser(null); setShowCreateUser(false); }} existingUsernames={unames} me={me} boards={boards} />}
       {(showCreateBoard || editBoard) && <BoardForm board={editBoard} onSave={saveBoard} onClose={() => { setShowCreateBoard(false); setEditBoard(null); }} existingPrefixes={prefixes} />}
-      {manageCols && <ColumnManager board={manageCols} cards={cards} onSave={saveCols} onClose={() => setManageCols(null)} />}
+      {manageCols && <ColumnManager board={manageCols} cards={cards} users={users} onSave={saveCols} onClose={() => setManageCols(null)} />}
       {manageLanding && <LandingManager board={manageLanding} onSave={saveLanding} onClose={() => setManageLanding(null)} />}
       {manageSap && isAdmin && <SapManager board={manageSap} onSave={saveSap} onClose={() => setManageSap(null)} />}
       {manageSpAutoImport && isAdmin && <SpAutoImportManager board={manageSpAutoImport} users={users} onSave={saveSpAutoImport} onClose={() => setManageSpAutoImport(null)} />}
@@ -729,7 +729,7 @@ const Index = () => {
         return <CardDetail card={fresh} board={b} users={users} me={me} onUpdate={updateCard} onDelete={c => setConfirmDeleteCard(c)} onMove={(c, colId) => moveCard(c, colId)} onClose={() => setViewCard(null)} />;
       })()}
 
-      {confirmDeleteUser  && <Confirm title="Eliminar Usuario"  msg={`¿Eliminar "${confirmDeleteUser.fullName}"?`}  onConfirm={deleteUser}  onCancel={() => setConfirmDeleteUser(null)} />}
+      {confirmDeleteUser  && <Confirm title="Desactivar Usuario" msg={`¿Desactivar a "${confirmDeleteUser.fullName}"? El usuario quedará inactivo pero sus datos se conservan.`} label="Desactivar" onConfirm={deleteUser} onCancel={() => setConfirmDeleteUser(null)} />}
       {confirmDeleteBoard && <Confirm title="Eliminar Tablero"  msg={`¿Eliminar "${confirmDeleteBoard.name}"?`}     onConfirm={deleteBoard} onCancel={() => setConfirmDeleteBoard(null)} />}
       {confirmDeleteField && <Confirm title="Eliminar Campo"    msg={`¿Eliminar "${confirmDeleteField.name}" del tablero "${confirmDeleteField.boardName}"?`} onConfirm={deleteField} onCancel={() => setConfirmDeleteField(null)} />}
       {confirmDeleteCard  && <Confirm title="Eliminar Caso"     msg={`"${confirmDeleteCard.code}" se ocultará. Los datos quedan.`} label="Eliminar" onConfirm={softDeleteCard} onCancel={() => setConfirmDeleteCard(null)} />}

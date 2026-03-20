@@ -31,10 +31,12 @@ async function serializeBoard(board: typeof boards.$inferSelect) {
     spAutoImport: board.spAutoImport ?? undefined,
     landing:      board.landing ?? undefined,
     columns: cols.map(c => ({
-      id:      c.id,
-      boardId: c.boardId,
-      name:    c.name,
-      order:   c.order,
+      id:               c.id,
+      boardId:          c.boardId,
+      name:             c.name,
+      order:            c.order,
+      defaultAssigneeId: c.defaultAssigneeId ?? null,
+      maxHours:         c.maxHours ?? null,
     })),
     customFields: fields.map(f => ({
       id:          f.id,
@@ -85,6 +87,8 @@ router.get('/', async (_req: Request, res: Response) => {
       landing:      board.landing ?? undefined,
       columns: (colsMap.get(board.id) || []).map(c => ({
         id: c.id, boardId: c.boardId, name: c.name, order: c.order,
+        defaultAssigneeId: c.defaultAssigneeId ?? null,
+        maxHours: c.maxHours ?? null,
       })),
       customFields: (fieldsMap.get(board.id) || []).map(f => ({
         id: f.id, boardId: f.boardId, name: f.name, type: f.type,
@@ -176,7 +180,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // PUT /api/boards/:id/columns  — reemplaza array completo de columns (atómico)
 router.put('/:id/columns', async (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const { columns: colsInput } = req.body as { columns: Array<{ id?: string; name: string; order: number }> };
+  const { columns: colsInput } = req.body as { columns: Array<{ id?: string; name: string; order: number; defaultAssigneeId?: string | null; maxHours?: number | null }> };
   if (!Array.isArray(colsInput)) return res.status(400).json({ error: 'columns array requerido.' });
   const client = await pool.connect();
   try {
@@ -197,23 +201,33 @@ router.put('/:id/columns', async (req: Request, res: Response) => {
     // Insertar o actualizar
     const result = [];
     for (const col of colsInput) {
+      const defAssigneeId = col.defaultAssigneeId || null;
+      const maxHours = (col.maxHours != null && col.maxHours > 0) ? col.maxHours : null;
       if (col.id && existingIds.has(col.id)) {
         const updRes = await client.query(
-          'UPDATE columns SET name = $1, "order" = $2 WHERE id = $3 RETURNING *',
-          [col.name, col.order, col.id]
+          'UPDATE columns SET name = $1, "order" = $2, default_assignee_id = $3, max_hours = $4 WHERE id = $5 RETURNING *',
+          [col.name, col.order, defAssigneeId, maxHours, col.id]
         );
         result.push(updRes.rows[0]);
       } else {
         const insRes = await client.query(
-          'INSERT INTO columns (id, board_id, name, "order") VALUES (gen_random_uuid(), $1, $2, $3) RETURNING *',
-          [id, col.name, col.order]
+          'INSERT INTO columns (id, board_id, name, "order", default_assignee_id, max_hours) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) RETURNING *',
+          [id, col.name, col.order, defAssigneeId, maxHours]
         );
         result.push(insRes.rows[0]);
       }
     }
 
     await client.query('COMMIT');
-    return res.json(result);
+    // Mapear a camelCase para que coincida con la interfaz Column del frontend
+    return res.json(result.map((row: any) => ({
+      id:               row.id,
+      boardId:          row.board_id,
+      name:             row.name,
+      order:            row.order,
+      defaultAssigneeId: row.default_assignee_id ?? null,
+      maxHours:         row.max_hours ?? null,
+    })));
   } catch (err: any) {
     await client.query('ROLLBACK');
     return res.status(500).json({ error: 'Error al guardar carriles.', ...(process.env.NODE_ENV !== 'production' && { detail: err.message }) });

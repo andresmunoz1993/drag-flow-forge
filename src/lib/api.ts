@@ -90,7 +90,7 @@ export const apiCreateUser = (data: Omit<User, 'id' | 'createdAt'> & { boardRole
 export const apiUpdateUser = (id: string, data: Partial<User> & { boardRoles?: Record<string, string> }): Promise<User> =>
   PUT(`/api/users/${id}`, data);
 
-export const apiDeleteUser = (id: string): Promise<{ ok: boolean }> =>
+export const apiDeleteUser = (id: string): Promise<User> =>
   DELETE(`/api/users/${id}`);
 
 // ─── Boards ───────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ export const apiUpdateBoard = (id: string, data: Partial<Board>): Promise<Board>
 export const apiDeleteBoard = (id: string): Promise<{ ok: boolean }> =>
   DELETE(`/api/boards/${id}`);
 
-export const apiSaveColumns = (boardId: string, cols: Array<{ id?: string; name: string; order: number }>): Promise<Column[]> =>
+export const apiSaveColumns = (boardId: string, cols: Array<{ id?: string; name: string; order: number; defaultAssigneeId?: string | null; maxHours?: number | null }>): Promise<Column[]> =>
   PUT(`/api/boards/${boardId}/columns`, { columns: cols });
 
 // ─── Cards ────────────────────────────────────────────────────────────────────

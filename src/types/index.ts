@@ -60,6 +60,10 @@ export interface Column {
   id: string;
   name: string;
   order: number;
+  /** UUID del responsable asignado por defecto al mover un caso a este carril. */
+  defaultAssigneeId?: string | null;
+  /** Tiempo máximo (en horas) que un caso debería permanecer en este carril. null = sin límite. */
+  maxHours?: number | null;
 }
 
 export interface CustomField {

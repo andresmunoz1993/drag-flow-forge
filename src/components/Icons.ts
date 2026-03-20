@@ -3,7 +3,7 @@ import {
   X, Search, ChevronUp, ChevronDown, Settings, Columns, List,
   Paperclip, Download, MessageSquare, Move, Check, Lock, SlidersHorizontal,
   Globe, Copy, ExternalLink, Calculator, Database, Loader2, Package,
-  AlertCircle, ShieldCheck, RefreshCw, BarChart2, Play, Filter,
+  AlertCircle, ShieldCheck, RefreshCw, BarChart2, Play, Filter, Clock,
 } from 'lucide-react';
 
 export const Icons = {
@@ -43,4 +43,5 @@ export const Icons = {
   reports: BarChart2,
   play: Play,
   filter: Filter,
+  clock: Clock,
 };

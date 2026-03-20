@@ -1,11 +1,33 @@
 import { Router, Request, Response } from 'express';
 import { eq, desc, inArray, and } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import jwt from 'jsonwebtoken';
 import { db, pool } from '../db/index';
 import { cards, cardFiles, comments, commentFiles, globalCounter, boards } from '../db/schema';
 import { sendEmail } from '../services/email.service';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
+
+/**
+ * Resuelve el nombre completo del usuario autenticado a partir del JWT en el header.
+ * Cae en `fallback` si el token no está presente o el usuario no se encuentra.
+ */
+async function getActorName(req: Request, fallback = ''): Promise<string> {
+  try {
+    const header = req.headers.authorization;
+    if (!header?.startsWith('Bearer ')) return fallback;
+    const payload = jwt.decode(header.slice(7)) as { userId?: string } | null;
+    if (!payload?.userId) return fallback;
+    const res = await pool.query<{ full_name: string }>(
+      'SELECT full_name FROM users WHERE id = $1',
+      [payload.userId]
+    );
+    return res.rows[0]?.full_name || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Verifica si una columna supera 100 tarjetas activas y, si es así,
@@ -159,24 +181,31 @@ async function notifyColumnChange(
   newColId:    string,
   assigneeId:  string,
   movedBy:     string,
+  boardId:     string,
 ): Promise<void> {
   try {
     if (!assigneeId) return;
 
-    const [assigneeRes, oldColRes, newColRes] = await Promise.all([
+    const [assigneeRes, oldColRes, newColRes, boardRes, boardPendingRes, totalPendingRes] = await Promise.all([
       pool.query<{ email: string; full_name: string }>(
         'SELECT email, full_name FROM users WHERE id = $1 AND active = true AND email != \'\'',
         [assigneeId]
       ),
       pool.query<{ name: string }>('SELECT name FROM columns WHERE id = $1', [oldColId]),
       pool.query<{ name: string }>('SELECT name FROM columns WHERE id = $1', [newColId]),
+      pool.query<{ name: string }>('SELECT name FROM boards WHERE id = $1', [boardId]),
+      pool.query<{ v: number }>('SELECT fn_pending_by_board($1,$2) AS v', [assigneeId, boardId]),
+      pool.query<{ v: number }>('SELECT fn_pending_total($1) AS v', [assigneeId]),
     ]);
 
-    const assignee = assigneeRes.rows[0];
+    const assignee    = assigneeRes.rows[0];
     if (!assignee?.email) return;
 
-    const oldColName = oldColRes.rows[0]?.name ?? 'desconocido';
-    const newColName = newColRes.rows[0]?.name ?? 'desconocido';
+    const oldColName   = oldColRes.rows[0]?.name ?? 'desconocido';
+    const newColName   = newColRes.rows[0]?.name ?? 'desconocido';
+    const boardName    = boardRes.rows[0]?.name ?? '';
+    const boardPending = Number(boardPendingRes.rows[0]?.v ?? 0);
+    const totalPending = Number(totalPendingRes.rows[0]?.v ?? 0);
 
     await sendEmail({
       to:       assignee.email,
@@ -198,6 +227,14 @@ async function notifyColumnChange(
               <td style="padding:8px 14px;background:#eff6ff;border-radius:0 0 4px 0;font-size:13px;color:#1d4ed8;font-weight:600">${newColName}</td>
             </tr>
           </table>
+          <div style="background:#fefce8;border-left:3px solid #eab308;padding:12px 16px;border-radius:4px;margin:16px 0">
+            <p style="margin:0 0 6px 0;font-size:14px;color:#374151">
+              Tienes <strong>${boardPending}</strong> caso${boardPending !== 1 ? 's' : ''} pendiente${boardPending !== 1 ? 's' : ''} por resolver en el tablero <strong>${boardName}</strong>.
+            </p>
+            <p style="margin:0;font-size:14px;color:#374151">
+              En total tienes <strong>${totalPending}</strong> caso${totalPending !== 1 ? 's' : ''} sin resolver en todos los tableros.
+            </p>
+          </div>
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
           <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
         </div>
@@ -222,18 +259,22 @@ async function notifyAssigneeChange(
   try {
     if (!newAssigneeId) return;
 
-    const [assigneeRes, boardRes] = await Promise.all([
+    const [assigneeRes, boardRes, boardPendingRes, totalPendingRes] = await Promise.all([
       pool.query<{ email: string; full_name: string }>(
         'SELECT email, full_name FROM users WHERE id = $1 AND active = true AND email != \'\'',
         [newAssigneeId]
       ),
       pool.query<{ name: string }>('SELECT name FROM boards WHERE id = $1', [boardId]),
+      pool.query<{ v: number }>('SELECT fn_pending_by_board($1,$2) AS v', [newAssigneeId, boardId]),
+      pool.query<{ v: number }>('SELECT fn_pending_total($1) AS v', [newAssigneeId]),
     ]);
 
-    const assignee = assigneeRes.rows[0];
+    const assignee    = assigneeRes.rows[0];
     if (!assignee?.email) return;
 
-    const boardName = boardRes.rows[0]?.name ?? '';
+    const boardName    = boardRes.rows[0]?.name ?? '';
+    const boardPending = Number(boardPendingRes.rows[0]?.v ?? 0);
+    const totalPending = Number(totalPendingRes.rows[0]?.v ?? 0);
 
     await sendEmail({
       to:       assignee.email,
@@ -244,7 +285,15 @@ async function notifyAssigneeChange(
           <h2 style="color:#2563eb;margin-top:0">👤 Nuevo caso asignado</h2>
           <p>Hola <strong>${assignee.full_name}</strong>,</p>
           <p><strong>${assignedBy || 'Un administrador'}</strong> te ha asignado el caso
-             <strong>${cardCode} — ${cardTitle}</strong>${boardName ? ` (${boardName})` : ''}.</p>
+             <strong>${cardCode} — ${cardTitle}</strong>${boardName ? ` en el tablero <strong>${boardName}</strong>` : ''}.</p>
+          <div style="background:#fefce8;border-left:3px solid #eab308;padding:12px 16px;border-radius:4px;margin:16px 0">
+            <p style="margin:0 0 6px 0;font-size:14px;color:#374151">
+              Tienes <strong>${boardPending}</strong> caso${boardPending !== 1 ? 's' : ''} pendiente${boardPending !== 1 ? 's' : ''} por resolver en el tablero <strong>${boardName}</strong>.
+            </p>
+            <p style="margin:0;font-size:14px;color:#374151">
+              En total tienes <strong>${totalPending}</strong> caso${totalPending !== 1 ? 's' : ''} sin resolver en todos los tableros.
+            </p>
+          </div>
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
           <p style="color:#6b7280;font-size:12px">Mensaje automático del sistema Allers.</p>
         </div>
@@ -595,6 +644,9 @@ router.put('/:id', async (req: Request, res: Response) => {
       modifiedBy, modifiedAt, clientRef, files,
     } = req.body;
 
+    // Si assigneeId no viene en el body, preservar el valor actual en la DB
+    const assigneeInBody = 'assigneeId' in req.body;
+
     await client.query(
       `UPDATE cards SET
         column_id        = COALESCE($1, column_id),
@@ -602,7 +654,7 @@ router.put('/:id', async (req: Request, res: Response) => {
         description      = COALESCE($3, description),
         priority         = COALESCE($4, priority),
         type             = COALESCE($5, type),
-        assignee_id      = $6,
+        assignee_id      = ${assigneeInBody ? '$6' : 'COALESCE($6, assignee_id)'},
         custom_data      = COALESCE($7::jsonb, custom_data),
         assignee_history = COALESCE($8::jsonb, assignee_history),
         move_history     = COALESCE($9::jsonb, move_history),
@@ -628,6 +680,59 @@ router.put('/:id', async (req: Request, res: Response) => {
         id,
       ]
     );
+
+    // ── Auto-asignación por responsable por defecto del carril ─────────────────
+    // Si la tarjeta cambió de carril y el carril destino tiene un responsable
+    // por defecto distinto al actual, se asigna automáticamente.
+    let autoAssignTriggered = false;
+    let autoAssigneeId: string | null = null;
+    if (columnId) {
+      const colRes = await client.query<{ default_assignee_id: string | null }>(
+        'SELECT default_assignee_id FROM columns WHERE id = $1',
+        [columnId]
+      );
+      const colDefaultAssigneeId = colRes.rows[0]?.default_assignee_id ?? null;
+
+      if (colDefaultAssigneeId) {
+        // Leer el assignee actual (ya refleja el UPDATE principal)
+        const cardRes = await client.query<{ assignee_id: string | null }>(
+          'SELECT assignee_id FROM cards WHERE id = $1',
+          [id]
+        );
+        const currentAssigneeId = cardRes.rows[0]?.assignee_id ?? null;
+
+        if (currentAssigneeId !== colDefaultAssigneeId) {
+          // Obtener el nombre del responsable por defecto
+          const userRes = await client.query<{ full_name: string }>(
+            'SELECT full_name FROM users WHERE id = $1',
+            [colDefaultAssigneeId]
+          );
+          const defAssigneeName = userRes.rows[0]?.full_name ?? '';
+
+          // Construir entrada para assignee_history
+          const histEntry = JSON.stringify([{
+            id:           randomUUID(),
+            assigneeId:   colDefaultAssigneeId,
+            assigneeName: defAssigneeName,
+            assignedAt:   new Date().toISOString(),
+          }]);
+
+          // Actualizar el responsable y el historial en la misma transacción
+          await client.query(
+            `UPDATE cards
+               SET assignee_id      = $1,
+                   assignee_history = assignee_history || $2::jsonb,
+                   modified_at      = NOW()
+             WHERE id = $3`,
+            [colDefaultAssigneeId, histEntry, id]
+          );
+
+          autoAssignTriggered  = true;
+          autoAssigneeId       = colDefaultAssigneeId;
+        }
+      }
+    }
+    // ── Fin auto-asignación ─────────────────────────────────────────────────────
 
     // Reemplazar archivos si se envían
     if (Array.isArray(files)) {
@@ -665,23 +770,39 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (prev && columnId && columnId !== prev.column_id) {
       const currentAssigneeId = updated.assigneeId ?? prev.assignee_id;
       if (currentAssigneeId) {
-        notifyColumnChange(
-          updated.code, updated.title,
-          prev.column_id, columnId,
-          currentAssigneeId,
-          modifiedBy ?? ''
+        getActorName(req, modifiedBy ?? '').then(actorName =>
+          notifyColumnChange(
+            updated.code, updated.title,
+            prev.column_id, columnId,
+            currentAssigneeId,
+            actorName,
+            updated.boardId
+          )
         );
       }
     }
 
-    // Notificar al nuevo responsable si cambió (fire-and-forget)
-    const assigneeInBody = 'assigneeId' in req.body;
+    // Notificar al nuevo responsable si cambió manualmente (fire-and-forget)
     if (prev && assigneeInBody && assigneeId && (assigneeId || null) !== (prev.assignee_id || null)) {
-      notifyAssigneeChange(
-        updated.code, updated.title,
-        updated.boardId,
-        assigneeId,
-        modifiedBy ?? ''
+      getActorName(req, modifiedBy ?? '').then(actorName =>
+        notifyAssigneeChange(
+          updated.code, updated.title,
+          updated.boardId,
+          assigneeId,
+          actorName
+        )
+      );
+    }
+
+    // Notificar al responsable asignado automáticamente por defecto del carril (fire-and-forget)
+    if (autoAssignTriggered && autoAssigneeId) {
+      getActorName(req, modifiedBy ?? '').then(actorName =>
+        notifyAssigneeChange(
+          updated.code, updated.title,
+          updated.boardId,
+          autoAssigneeId!,
+          actorName
+        )
       );
     }
 

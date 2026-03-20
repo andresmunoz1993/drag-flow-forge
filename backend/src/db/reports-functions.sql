@@ -116,7 +116,48 @@ RETURNS TABLE(
 $$ LANGUAGE sql STABLE;
 
 
+-- ── 5. Casos pendientes de un responsable en un tablero ───────────────────────
+-- Devuelve el número de casos activos asignados a p_user_id en p_board_id,
+-- excluyendo el último carril del tablero (el de mayor order, e.g. "Entregar").
+CREATE OR REPLACE FUNCTION fn_pending_by_board(
+  p_user_id  uuid,
+  p_board_id uuid
+)
+RETURNS integer AS $$
+  SELECT COUNT(*)::integer
+  FROM cards c
+  JOIN columns cl ON cl.id = c.column_id
+  WHERE c.assignee_id = p_user_id
+    AND c.board_id    = p_board_id
+    AND c.deleted     = false
+    AND c.closed      = false
+    AND cl."order" < (
+      SELECT MAX("order") FROM columns WHERE board_id = p_board_id
+    );
+$$ LANGUAGE sql STABLE;
+
+
+-- ── 6. Total de casos pendientes de un responsable en todos los tableros ──────
+-- Suma todos los casos activos asignados a p_user_id en cualquier tablero,
+-- excluyendo el último carril (mayor order) de cada tablero.
+CREATE OR REPLACE FUNCTION fn_pending_total(
+  p_user_id uuid
+)
+RETURNS integer AS $$
+  SELECT COUNT(*)::integer
+  FROM cards c
+  JOIN columns cl ON cl.id = c.column_id
+  WHERE c.assignee_id = p_user_id
+    AND c.deleted     = false
+    AND c.closed      = false
+    AND cl."order" < (
+      SELECT MAX("order") FROM columns WHERE board_id = c.board_id
+    );
+$$ LANGUAGE sql STABLE;
+
+
 -- ── Verificación ──────────────────────────────────────────────────────────────
 -- Para verificar que las funciones se crearon correctamente:
 -- SELECT routine_name FROM information_schema.routines
--- WHERE routine_type = 'FUNCTION' AND routine_name LIKE 'rpt_%';
+-- WHERE routine_type = 'FUNCTION' AND routine_name LIKE 'rpt_%'
+--   OR routine_name LIKE 'fn_%';

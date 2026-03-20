@@ -34,10 +34,12 @@ export const boards = pgTable('boards', {
 
 // ── columns ───────────────────────────────────────────────────────────────────
 export const columns = pgTable('columns', {
-  id:      uuid('id').primaryKey().defaultRandom(),
-  boardId: uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
-  name:    text('name').notNull(),
-  order:   integer('order').notNull(),
+  id:               uuid('id').primaryKey().defaultRandom(),
+  boardId:          uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  name:             text('name').notNull(),
+  order:            integer('order').notNull(),
+  defaultAssigneeId: uuid('default_assignee_id').references(() => users.id, { onDelete: 'set null' }),
+  maxHours:         integer('max_hours'),
 });
 
 // ── custom_fields ─────────────────────────────────────────────────────────────

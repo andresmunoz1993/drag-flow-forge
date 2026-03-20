@@ -22,11 +22,13 @@ const roleBadgeClass: Record<string, string> = {
 const UserList: React.FC<UserListProps> = ({ users, me, boards, onEdit, onDelete, onCreate }) => {
   const [search, setSearch] = useState('');
   const [filterBoard, setFilterBoard] = useState('all');
+  const [onlyActive, setOnlyActive] = useState(true);
 
   const filtered = useMemo(() => users.filter(u => {
+    if (onlyActive && !u.active) return false;
     const ms = !search || u.fullName.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase());
     return ms && (filterBoard === 'all' || u.isAdminTotal || u.boardRoles[filterBoard]);
-  }), [users, search, filterBoard]);
+  }), [users, search, filterBoard, onlyActive]);
 
   return (
     <div className="fade-in">
@@ -41,6 +43,12 @@ const UserList: React.FC<UserListProps> = ({ users, me, boards, onEdit, onDelete
           <option value="all">Todos</option>
           {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        <button
+          onClick={() => setOnlyActive(p => !p)}
+          className={`flex items-center gap-1.5 px-3 py-[7px] rounded-md text-[12px] font-semibold cursor-pointer border transition-colors ${onlyActive ? 'bg-success/10 text-success border-success/30 hover:bg-success/20' : 'bg-surface-3 text-text-secondary border-border hover:bg-surface-4'}`}
+        >
+          <Icons.check size={13} /> {onlyActive ? 'Solo activos' : 'Todos'}
+        </button>
         <div className="flex-1" />
         <button className="flex items-center gap-1.5 px-3 py-[7px] bg-success text-success-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110"
           onClick={onCreate}><Icons.plus size={14} /> Nuevo</button>

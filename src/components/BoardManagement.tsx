@@ -57,23 +57,32 @@ export const BoardForm: React.FC<BoardFormProps> = ({ board, onSave, onClose, ex
 interface ColumnManagerProps {
   board: Board;
   cards: Card[];
+  users: User[];
   onSave: (cols: Column[]) => void;
   onClose: () => void;
 }
 
-export const ColumnManager: React.FC<ColumnManagerProps> = ({ board, cards, onSave, onClose }) => {
+export const ColumnManager: React.FC<ColumnManagerProps> = ({ board, cards, users, onSave, onClose }) => {
   const [cols, setCols] = useState<Column[]>([...board.columns].sort((a, b) => a.order - b.order));
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
   const boardCards = cards.filter(c => c.boardId === board.id && !c.deleted && !c.closed);
   const getCount = (id: string) => boardCards.filter(c => c.columnId === id).length;
 
+  // Usuarios asignables: activos con acceso al tablero
+  const assignableUsers = users.filter(u => u.active && (u.isAdminTotal || !!u.boardRoles[board.id]));
+
   const add = () => {
     if (!newName.trim()) return;
     if (cols.find(c => c.name.toLowerCase() === newName.trim().toLowerCase())) { setError('Ya existe'); return; }
     setError('');
-    setCols(p => [...p, { id: generateId(), name: newName.trim(), order: p.length }]);
+    setCols(p => [...p, { id: generateId(), name: newName.trim(), order: p.length, defaultAssigneeId: null, maxHours: null }]);
     setNewName('');
+  };
+
+  const setMaxHours = (colId: string, value: string) => {
+    const n = parseInt(value);
+    setCols(p => p.map(c => c.id === colId ? { ...c, maxHours: (!value || isNaN(n) || n <= 0) ? null : n } : c));
   };
 
   const remove = (id: string) => {
@@ -93,47 +102,122 @@ export const ColumnManager: React.FC<ColumnManagerProps> = ({ board, cards, onSa
     setCols(p => { const n = [...p]; [n[i], n[i + 1]] = [n[i + 1], n[i]]; return n.map((x, j) => ({ ...x, order: j })); });
   };
 
+  const setDefaultAssignee = (colId: string, userId: string | null) => {
+    setCols(p => p.map(c => c.id === colId ? { ...c, defaultAssigneeId: userId } : c));
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] backdrop-blur-[4px]" onClick={onClose}>
-      <div className="bg-card border border-border rounded-[14px] w-[750px] max-h-[85vh] overflow-y-auto p-7 fade-in" onClick={e => e.stopPropagation()}>
-        <div className="text-[17px] font-bold text-foreground mb-5">Carriles — {board.name}</div>
-        <div className="text-[12px] text-text-secondary mb-3">El <strong>último carril</strong> funciona como cierre.</div>
+      <div className="bg-card border border-border rounded-[14px] w-[660px] max-h-[85vh] overflow-y-auto p-7 fade-in" onClick={e => e.stopPropagation()}>
+
+        {/* ── Encabezado ── */}
+        <div className="text-[17px] font-bold text-foreground mb-1">Carriles — {board.name}</div>
+        <div className="text-[12px] text-text-muted mb-5">
+          El <strong className="text-text-secondary">último carril</strong> es el carril de cierre.
+          Configura un <strong className="text-text-secondary">tiempo máximo</strong> por carril para activar alertas visuales en las tarjetas que lo superen.
+        </div>
+
         {error && <div className="p-3 rounded-lg text-[13px] mb-4 bg-destructive/10 text-destructive">{error}</div>}
 
-        <ul className="list-none">
+        {/* ── Lista de carriles ── */}
+        <div className="space-y-2">
           {cols.map((c, i) => {
             const count = getCount(c.id);
             const isLast = i === cols.length - 1;
             return (
-              <li key={c.id} className={`flex items-center gap-2.5 py-2.5 px-3 bg-surface-2 border rounded-lg mb-1.5 ${isLast ? 'border-success' : 'border-border'}`}>
-                <span className="text-[12px] text-text-muted font-mono min-w-[24px] text-center">{i + 1}</span>
-                <span className="flex-1 text-[13px] text-foreground font-medium">
-                  {c.name}
-                  {isLast && <span className="ml-2 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-success/10 text-success">CIERRE</span>}
-                </span>
-                {count > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary">{count}</span>}
-                <div className="flex gap-1">
-                  <button className="p-1 bg-transparent border-none text-text-muted cursor-pointer rounded hover:bg-surface-4 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed" onClick={() => moveUp(i)} disabled={!i}><Icons.up size={14} /></button>
-                  <button className="p-1 bg-transparent border-none text-text-muted cursor-pointer rounded hover:bg-surface-4 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed" onClick={() => moveDown(i)} disabled={i >= cols.length - 1}><Icons.down size={14} /></button>
-                  <button className={`p-1 bg-transparent border-none cursor-pointer rounded ${count > 0 ? 'opacity-30 cursor-not-allowed text-text-muted' : 'text-destructive hover:bg-destructive/10'}`}
-                    onClick={() => remove(c.id)}><Icons.x size={14} /></button>
+              <div key={c.id} className={`rounded-xl border bg-surface-2 overflow-hidden transition-colors ${isLast ? 'border-success/60' : 'border-border'}`}>
+
+                {/* Cabecera de la tarjeta */}
+                <div className={`flex items-center gap-2.5 px-4 py-2.5 ${isLast ? 'bg-success/5' : 'bg-surface-3'}`}>
+                  <span className="text-[11px] font-mono font-semibold text-text-muted w-5 shrink-0 text-center">{i + 1}</span>
+                  <span className="flex-1 text-[13px] font-semibold text-foreground truncate">{c.name}</span>
+                  {isLast && (
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-success/15 text-success border border-success/30 uppercase tracking-wide shrink-0">
+                      Cierre
+                    </span>
+                  )}
+                  {count > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary shrink-0" title={`${count} caso${count > 1 ? 's' : ''} en este carril`}>
+                      {count}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button className="p-1 rounded text-text-muted hover:bg-surface-4 hover:text-foreground disabled:opacity-25 disabled:cursor-not-allowed transition-colors" onClick={() => moveUp(i)} disabled={i === 0} title="Subir"><Icons.up size={13} /></button>
+                    <button className="p-1 rounded text-text-muted hover:bg-surface-4 hover:text-foreground disabled:opacity-25 disabled:cursor-not-allowed transition-colors" onClick={() => moveDown(i)} disabled={i >= cols.length - 1} title="Bajar"><Icons.down size={13} /></button>
+                    <button className={`p-1 rounded transition-colors ${count > 0 ? 'opacity-25 cursor-not-allowed text-text-muted' : 'text-destructive hover:bg-destructive/10'}`} onClick={() => remove(c.id)} title="Eliminar carril"><Icons.x size={13} /></button>
+                  </div>
                 </div>
-              </li>
+
+                {/* Cuerpo: campos de configuración */}
+                <div className="grid grid-cols-2 gap-px bg-border">
+                  {/* Campo 1: Responsable por defecto */}
+                  <div className="bg-surface-2 px-4 py-3">
+                    <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
+                      Responsable por defecto
+                    </label>
+                    <select
+                      className="w-full py-1.5 px-2.5 bg-surface-3 border border-border rounded-md text-[12px] text-foreground outline-none cursor-pointer focus:border-primary transition-colors"
+                      value={c.defaultAssigneeId ?? ''}
+                      onChange={e => setDefaultAssignee(c.id, e.target.value || null)}
+                    >
+                      <option value="">— Sin responsable —</option>
+                      {assignableUsers.map(u => (
+                        <option key={u.id} value={u.id}>{u.fullName}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Campo 2: Tiempo máximo */}
+                  <div className="bg-surface-2 px-4 py-3">
+                    <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
+                      Tiempo máximo en carril
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="Sin límite"
+                        className="w-full py-1.5 px-2.5 bg-surface-3 border border-border rounded-md text-[12px] text-foreground outline-none focus:border-warning transition-colors placeholder:text-text-muted"
+                        value={c.maxHours ?? ''}
+                        onChange={e => setMaxHours(c.id, e.target.value)}
+                      />
+                      <span className="text-[11px] text-text-muted shrink-0">horas</span>
+                    </div>
+                    {c.maxHours != null && c.maxHours > 0 && (
+                      <div className="mt-1 text-[10px] text-warning">
+                        ≈ {c.maxHours < 24 ? `${c.maxHours}h` : c.maxHours % 24 === 0 ? `${c.maxHours / 24}d` : `${Math.floor(c.maxHours / 24)}d ${c.maxHours % 24}h`}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
             );
           })}
-        </ul>
-
-        <div className="flex gap-2 mt-3">
-          <input className="flex-1 py-[11px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary placeholder:text-text-muted"
-            placeholder="Nombre del carril" value={newName} onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-md text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-50"
-            onClick={add} disabled={!newName.trim()}><Icons.plus size={14} /> Agregar</button>
         </div>
 
-        <div className="flex gap-2 justify-end mt-6">
-          <button className="px-5 py-2.5 bg-surface-3 text-foreground border border-border rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-surface-4" onClick={onClose}>Cancelar</button>
-          <button className="px-5 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-semibold cursor-pointer hover:brightness-110" onClick={() => onSave(cols)}>Guardar</button>
+        {/* ── Agregar carril ── */}
+        <div className="flex gap-2 mt-4">
+          <input
+            className="flex-1 py-[10px] px-3.5 bg-surface-2 border border-border rounded-lg text-foreground text-sm outline-none focus:border-primary placeholder:text-text-muted"
+            placeholder="Nombre del nuevo carril"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          />
+          <button
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-primary text-primary-foreground rounded-lg text-[12px] font-semibold cursor-pointer hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            onClick={add}
+            disabled={!newName.trim()}
+          >
+            <Icons.plus size={14} /> Agregar
+          </button>
+        </div>
+
+        {/* ── Acciones ── */}
+        <div className="flex gap-2 justify-end mt-6 pt-5 border-t border-border">
+          <button className="px-5 py-2.5 bg-surface-3 text-foreground border border-border rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-surface-4 transition-colors" onClick={onClose}>Cancelar</button>
+          <button className="px-5 py-2.5 bg-success text-success-foreground rounded-lg text-[13px] font-semibold cursor-pointer hover:brightness-110 transition-all" onClick={() => onSave(cols)}>Guardar cambios</button>
         </div>
       </div>
     </div>

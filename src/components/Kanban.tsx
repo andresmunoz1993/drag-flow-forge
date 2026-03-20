@@ -1,7 +1,31 @@
-import React, { useState, useMemo, useCallback, memo, useRef } from 'react';
+import React, { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react';
 import type { Board, Card, User } from '@/types';
 import { Icons } from './Icons';
 import { getInitials } from '@/lib/storage';
+
+// ── Helpers de tiempo en carril ────────────────────────────────────────────────
+
+/** Devuelve el timestamp (ms) en que la tarjeta entró al carril actual. */
+function getEnteredAt(card: Card, colId: string): number {
+  const moves = (card.moveHistory || []).filter(m => m.toCol === colId);
+  if (moves.length > 0) {
+    moves.sort((a, b) => new Date(b.movedAt).getTime() - new Date(a.movedAt).getTime());
+    return new Date(moves[0].movedAt).getTime();
+  }
+  return new Date(card.createdAt).getTime();
+}
+
+/** Formatea milisegundos como "Xd Xh" / "Xh Xm" / "Xm". */
+function formatElapsed(ms: number): string {
+  const totalMins = Math.floor(ms / 60_000);
+  const mins  = totalMins % 60;
+  const totalH = Math.floor(totalMins / 60);
+  const hours = totalH % 24;
+  const days  = Math.floor(totalH / 24);
+  if (days > 0)  return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
 
 interface KanbanProps {
   board: Board;
@@ -30,46 +54,67 @@ interface KanbanCardProps {
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   onCloseCase: (card: Card) => void;
+  enteredAt: number;
+  colMaxHours: number | null;
+  now: number;
 }
 
-const KanbanCard = memo(({ card: c, users, isDragging, canMove, isLastCol, onCardClick, onDragStart, onDragEnd, onCloseCase }: KanbanCardProps) => (
-  <div
-    className={`bg-surface-2 border border-border rounded-lg p-3 mb-2 cursor-pointer transition-all select-none hover:border-primary ${isDragging ? 'opacity-50 border-primary' : ''}`}
-    draggable={canMove}
-    onDragStart={e => { if (!canMove) return; onDragStart(c.id); e.dataTransfer.effectAllowed = 'move'; }}
-    onDragEnd={onDragEnd}
-    onClick={() => onCardClick(c)}>
-    <div className="flex items-center gap-1.5 mb-1">
-      <span className="text-[12px] text-primary font-semibold">{c.code}</span>
-      {c.spExternalId && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">SP</span>}
-    </div>
-    <div className="text-[15px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {c.priority && (
-        <span className={`text-[11px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
-          {c.priority.charAt(0).toUpperCase() + c.priority.slice(1)}
+const KanbanCard = memo(({ card: c, users, isDragging, canMove, isLastCol, onCardClick, onDragStart, onDragEnd, onCloseCase, enteredAt, colMaxHours, now }: KanbanCardProps) => {
+  const elapsedMs = now - enteredAt;
+  const isOverLimit = colMaxHours != null && elapsedMs > colMaxHours * 3_600_000;
+  const timeLabel = formatElapsed(elapsedMs);
+
+  return (
+    <div
+      className={`bg-surface-2 border rounded-lg p-3 mb-2 cursor-pointer transition-all select-none hover:border-primary
+        ${isDragging ? 'opacity-50 border-primary' : isOverLimit ? 'border-destructive/60' : 'border-border'}`}
+      draggable={canMove}
+      onDragStart={e => { if (!canMove) return; onDragStart(c.id); e.dataTransfer.effectAllowed = 'move'; }}
+      onDragEnd={onDragEnd}
+      onClick={() => onCardClick(c)}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-[12px] text-primary font-semibold">{c.code}</span>
+        {c.spExternalId && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">SP</span>}
+        {/* Badge de tiempo en carril */}
+        <span
+          className={`ml-auto flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border
+            ${isOverLimit
+              ? 'bg-destructive/10 text-destructive border-destructive/30'
+              : 'bg-surface-3 text-text-muted border-border'}`}
+          title={isOverLimit ? `Límite excedido (máx ${colMaxHours}h)` : `Tiempo en carril`}>
+          {isOverLimit && <Icons.alert size={9} />}
+          <Icons.clock size={9} />
+          {timeLabel}
         </span>
-      )}
-      {c.type && <span className="text-[11px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
-      <span className="ml-auto text-[10px] text-text-muted flex items-center gap-1">
-        <Icons.msg size={10} />{(c.comments || []).length > 0 && <span>{c.comments.length}</span>}
-        {(c.files || []).length > 0 && <span className="ml-0.5 flex items-center gap-0.5"><Icons.clip size={10} />{c.files.length}</span>}
-      </span>
-      {c.assigneeId && (
-        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold">
-          {getInitials(users.find(u => u.id === c.assigneeId)?.fullName || '')}
+      </div>
+      <div className="text-[15px] text-foreground font-medium leading-[1.4] mb-2 line-clamp-2">{c.title}</div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {c.priority && (
+          <span className={`text-[11px] font-bold py-0.5 px-1.5 rounded ${c.priority === 'alta' ? 'bg-destructive/10 text-destructive' : c.priority === 'media' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+            {c.priority.charAt(0).toUpperCase() + c.priority.slice(1)}
+          </span>
+        )}
+        {c.type && <span className="text-[11px] text-text-muted bg-surface-3 py-0.5 px-1.5 rounded">{c.type}</span>}
+        <span className="ml-auto text-[10px] text-text-muted flex items-center gap-1">
+          <Icons.msg size={10} />{(c.comments || []).length > 0 && <span>{c.comments.length}</span>}
+          {(c.files || []).length > 0 && <span className="ml-0.5 flex items-center gap-0.5"><Icons.clip size={10} />{c.files.length}</span>}
         </span>
+        {c.assigneeId && (
+          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold">
+            {getInitials(users.find(u => u.id === c.assigneeId)?.fullName || '')}
+          </span>
+        )}
+      </div>
+      {isLastCol && canMove && (
+        <button
+          className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[12px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
+          onClick={e => { e.stopPropagation(); onCloseCase(c); }}>
+          <Icons.check size={10} /> Cerrar Caso
+        </button>
       )}
     </div>
-    {isLastCol && canMove && (
-      <button
-        className="w-full mt-2.5 py-1 px-2.5 bg-success text-success-foreground rounded text-[12px] font-semibold cursor-pointer flex items-center justify-center gap-1 hover:brightness-110"
-        onClick={e => { e.stopPropagation(); onCloseCase(c); }}>
-        <Icons.check size={10} /> Cerrar Caso
-      </button>
-    )}
-  </div>
-));
+  );
+});
 KanbanCard.displayName = 'KanbanCard';
 
 const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onCreate, onCardClick, onMoveCard, onCloseCase, onSpImport, isSpImporting }) => {
@@ -77,6 +122,13 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
   const lastCol = sortedCols[sortedCols.length - 1];
   const [filterAssigned, setFA] = useState(false);
   const [filterReported, setFR] = useState(false);
+
+  // Reloj para refrescar el tiempo en carril cada minuto
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   const boardCards = useMemo(() => cards.filter(c => {
     if (c.boardId !== board.id || c.deleted || c.closed) return false;
@@ -162,7 +214,14 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
                   {col.name}
                   {isLast && <span className="ml-1.5 text-[11px] text-success">✓ CIERRE</span>}
                 </span>
-                <span className="text-[11px] text-text-muted bg-surface-3 px-2 py-0.5 rounded-[10px] font-semibold">{colCards.length}</span>
+                <div className="flex items-center gap-1.5">
+                  {col.maxHours != null && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-warning font-semibold bg-warning/10 border border-warning/20 px-1.5 py-0.5 rounded-full" title={`Tiempo máximo: ${col.maxHours}h`}>
+                      <Icons.clock size={9} />{col.maxHours}h
+                    </span>
+                  )}
+                  <span className="text-[11px] text-text-muted bg-surface-3 px-2 py-0.5 rounded-[10px] font-semibold">{colCards.length}</span>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2 min-h-[60px]">
                 {colCards.map(c => (
@@ -177,6 +236,9 @@ const Kanban: React.FC<KanbanProps> = ({ board, cards, users, me, onColumns, onC
                     onDragStart={handleDragStart}
                     onDragEnd={handleDragEnd}
                     onCloseCase={handleCloseCase}
+                    enteredAt={getEnteredAt(c, col.id)}
+                    colMaxHours={col.maxHours ?? null}
+                    now={now}
                   />
                 ))}
                 {!colCards.length && <div className="py-6 px-3 text-center text-[12px] text-text-muted italic">Sin casos</div>}

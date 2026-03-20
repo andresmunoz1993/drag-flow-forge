@@ -173,15 +173,15 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/users/:id
+// DELETE /api/users/:id — soft delete (desactiva al usuario)
 router.delete('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
-    await db.delete(userBoardRoles).where(eq(userBoardRoles.userId, id));
-    await db.delete(users).where(eq(users.id, id));
-    return res.json({ ok: true });
+    const [updated] = await db.update(users).set({ active: false }).where(eq(users.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    return res.json(await serializeUser(updated));
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error al eliminar usuario.', detail: err.message });
+    return res.status(500).json({ error: 'Error al desactivar usuario.', detail: err.message });
   }
 });
 
